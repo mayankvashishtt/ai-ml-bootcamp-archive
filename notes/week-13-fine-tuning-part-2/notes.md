@@ -8,6 +8,37 @@
 
 ---
 
+## 0. The idea in plain language
+
+A base model is a **next-token predictor**, and nothing more. Ask it *"What is EBITDA?"* and it doesn't answer — it **continues**:
+
+> *"What is EBITDA? EBITDA is a measure of operating performance. EBITDA stands for Earnings Before Interest… EBITDA is used by analysts to… What is EBIT? EBIT is…"*
+
+Notice what's wrong. The **content is fine** — it genuinely knows what EBITDA is. What it lacks is the **behavioural frame**: it doesn't recognise that a question is a request for an answer, and it has no idea when it's finished. It just keeps predicting plausible next tokens forever, because that is literally the only thing it was ever trained to do.
+
+**SFT teaches two things:**
+1. When you see an instruction, **produce a response** (rather than continuing the text)
+2. When the response is complete, **stop**
+
+That's it. This is the step that converts a text-continuation engine into something that feels like an assistant — and it's the difference between a "base" model and an "instruct" model on any model hub.
+
+**How it works:** you train on **(instruction, response) pairs** instead of raw text. Same loop as always — forward, loss, backward, update. Only **two** things differ from Week 12's CPT:
+
+| | CPT | SFT |
+|---|---|---|
+| **Data** | `"raw text raw text..."` | `"### Instruction: Q ### Response: A"` |
+| **Loss computed on** | **all** tokens | **only the response** tokens |
+
+**That second row is the technically important one, and it's worth understanding now.** You mask out the instruction when computing loss, so the model is never rewarded for predicting the *question*. Why? Because you don't want it learning to *generate* questions — you want it learning to generate *answers given* questions. Training on the instruction tokens teaches the wrong skill and wastes capacity.
+
+**The surprising part is how little data this takes.** Thousands of examples, not millions. The reason is that pretraining already installed the knowledge and the language ability — SFT is only teaching a *format and a habit*, which is a far smaller thing to learn.
+
+**The corollary, which people miss and which S11 covers properly:** because SFT is **imitation learning**, a mediocre example isn't harmless filler that averages out. The model learns to reproduce exactly what you showed it, flaws included. **Mediocre examples actively teach mediocrity.** A thousand excellent, diverse, consistent examples beat a hundred thousand scraped ones.
+
+**One more thing to watch for: the EOS token.** If your training examples don't end with an explicit end-of-sequence marker, the model never learns to stop, and you get an instruct-tuned model that rambles forever. It's a one-line mistake with a very visible symptom (§7).
+
+---
+
 ## Where we are
 
 ```
@@ -386,6 +417,30 @@ This is a genuinely important insight: SFT can make hallucination *worse*. Every
 > **Mitigation:** mix domain-specific + general instruction data. **80% domain, 20% general** — same principle as CPT mixing.
 
 Catastrophic forgetting (Week 12) applies to *behaviours* as well as *knowledge*, and the remedy is identical: give the optimizer a reason to preserve what you care about.
+
+---
+
+## Common confusions
+
+**"What's the difference between a 'base' and an 'instruct' model on HuggingFace?"** Exactly this week. **Base** = pretrained only, a raw next-token predictor that continues text rather than answering. **Instruct** (or "chat") = base plus SFT, so it recognises instructions and stops. If you download a base model and it rambles at you, nothing is broken — you downloaded the wrong one.
+
+**"Why mask the loss on the instruction tokens?"** Because you want the model to learn *"given this question, produce this answer"* — not *"generate questions like this."* Computing loss on the prompt teaches the wrong skill and spends capacity on it. Note this is the one genuinely distinctive mechanic of SFT versus CPT.
+
+**"Why do so few examples work?"** Pretraining already installed the knowledge, the grammar, and the reasoning. SFT only teaches a **format and a stopping habit** — a much smaller thing. You're not adding capability, you're surfacing it in a usable shape.
+
+**"If less data works, is more data still better?"** No, and this inverts the pretraining rule. SFT is **imitation learning**, so every example is a demonstration the model copies. Adding mediocre examples adds mediocre demonstrations. The LIMA result (S11) found ~1,000 curated examples competitive with vastly larger sets — quality, diversity, and *consistency* beat volume.
+
+**"What makes an SFT example good?"** Five things: it's **correct**; the response is one you'd **ship** (style and length get copied); the set is **diverse** across task types; examples are **consistent** with each other (contradictory examples teach inconsistency directly); and **formatting is uniform**. The most common defect in scraped instruction data is inconsistency — one similar request refused, another complied with.
+
+**"My fine-tuned model never stops generating."** Check the EOS token. If training examples don't terminate with an explicit end-of-sequence marker, the model has no signal for "done." It's the single most common SFT bug and §7 covers it.
+
+**"What is the alignment tax?"** Instruction tuning can make a model slightly *worse* at raw capability benchmarks while making it far more useful. You're constraining behaviour, and constraint costs something. It's usually a good trade — just know it's a trade, and measure both sides (S3).
+
+**"Should I use CPT before SFT?"** Only if the model genuinely doesn't understand your domain's vocabulary. CPT teaches *language*, SFT teaches *behaviour*. If the model reads your documents fine but responds in the wrong shape, skip straight to SFT — CPT is expensive and unnecessary there.
+
+**"Can I generate SFT data with a bigger model?"** Yes, and it's now standard practice (§11). The caveats: filter hard, verify where you can execute or check the output, and **deduplicate semantically** — synthetic generators collapse toward their own favourite phrasings, which is the characteristic failure mode. S11 covers the full pipeline.
+
+**"Can SFT teach the model new facts?"** Poorly and unreliably. It'll memorise some, without citations and without any way to update them. Facts belong in RAG (Week 9); SFT is for behaviour. This is Week 12's decision table and it doesn't stop applying here.
 
 ---
 
