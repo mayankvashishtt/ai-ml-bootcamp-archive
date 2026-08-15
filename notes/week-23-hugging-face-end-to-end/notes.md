@@ -8,6 +8,39 @@
 
 ---
 
+## 0. The idea in plain language
+
+This is a **map lecture**. You've already used most of these tools — `transformers` in Week 7, `peft` for LoRA in Week 12, `trl` for SFT and DPO in Weeks 13–14, `datasets` throughout. This session puts them in one frame so the ecosystem stops feeling like a pile of unrelated imports.
+
+**The simplest way to think about Hugging Face is as three layers:**
+
+**1. The Hub — where things are stored.** GitHub, but for models, datasets, and demos. Every model you've downloaded came from here. It's genuinely the reason open-source ML moves as fast as it does: someone fine-tunes a model, pushes it, and everyone else can use it that afternoon.
+
+**2. The libraries — how you build.** Each does one job, and they're designed to compose:
+
+| Library | What it does | You used it in |
+|---|---|---|
+| `transformers` | Load and run models | Week 7 |
+| `datasets` | Load and process training data | Weeks 12–14 |
+| `tokenizers` | Text ↔ tokens, fast | Week 3 |
+| `peft` | LoRA / QLoRA | Week 12 |
+| `trl` | SFT, DPO, GRPO trainers | Weeks 13–15 |
+| `accelerate` | Multi-GPU without rewriting code | (S10's territory) |
+
+**3. Deployment — how you ship.** Inference endpoints, serverless APIs, and **Spaces** (a hosted demo, usually Gradio, that turns a model into a shareable web page in about twenty lines).
+
+**The one genuinely important thing in this lecture is the model card**, and it's easy to skim past. A model card is the README on a model's Hub page, and reading it properly is a real skill:
+
+- **What was it trained on?** Determines what it's good at, and what biases it inherited.
+- **What's the licence?** Not every "open" model is commercially usable — some are research-only, some restrict use above a revenue threshold. This catches teams out.
+- **Base or instruct?** (Week 13) A base model continues text; an instruct model answers. Download the wrong one and it rambles at you.
+- **What are the reported numbers, and against what baseline?** Week 20's scepticism applies to model cards exactly as it does to papers.
+- **Total vs active parameters** if it's an MoE (S10) — the first tells you what hardware can host it, the second what it costs to run.
+
+**The practical framing to leave with:** Hugging Face is the reason you didn't have to implement attention, LoRA, or a DPO trainer yourself. It's infrastructure, and the skill isn't memorising the API — it's knowing **which layer solves which problem** so you can find the right tool quickly.
+
+---
+
 ## The mental model
 
 > **Three layers — store, build, ship — plus a long tail of extras.**
@@ -228,6 +261,28 @@ Almost the entire course can be rebuilt from this stack:
 | **21** — Agents | `smolagents` (vs LangGraph) |
 
 And Unsloth (Weeks 12–15) was explicitly described as "same math, faster" on top of `transformers` + `peft` + `trl` — this is the layer underneath it.
+
+---
+
+## Common confusions
+
+**"`transformers` vs `trl` vs `peft` — which do I use?"** They stack rather than compete. `transformers` loads and runs the model. `peft` attaches LoRA adapters to it. `trl` provides the training loop (SFT, DPO, GRPO) that trains those adapters. A typical fine-tune imports all three.
+
+**"Base or instruct — which model should I download?"** **Instruct** if you want it to answer questions out of the box. **Base** if you're going to fine-tune it yourself, since you don't want to fight someone else's instruction tuning. If a model rambles and never stops, you probably grabbed the base version (Week 13 §0).
+
+**"Is 'open weights' the same as 'open source'?"** No, and this matters commercially. Open weights means you can download and run the model. The **licence** determines whether you can use it commercially, fine-tune it, or serve it to customers — and some popular models restrict all three. Read the licence on the model card *before* you build on it, not after.
+
+**"Why is the model card worth reading carefully?"** Because it's where the constraints hide: training data (what it's good at, what it's biased toward), licence, base-vs-instruct, context length, and reported benchmarks. Apply Week 20's baseline scepticism — a model card is marketing as well as documentation.
+
+**"What's a Space?"** A hosted demo — usually a Gradio or Streamlit app — that turns a model into a shareable web page. Genuinely useful for showing work to non-technical people, and free at small scale.
+
+**"Serverless API vs Inference Endpoints?"** Serverless is shared, cheap, and cold-starts. Endpoints are dedicated hardware you pay for continuously with predictable latency. Prototype on serverless; move to endpoints when latency matters or volume justifies it.
+
+**"Do I need `accelerate`?"** Only when one GPU stops being enough. It abstracts multi-GPU and mixed-precision setup so the same training script runs on one GPU or eight without changes. S10 covers what it's abstracting.
+
+**"How do I know a Hub model is any good?"** Downloads and likes are weak signals — popularity tracks recency and hype. Better: check whether the card documents its training data and evaluation, whether the licence is usable, and then **run it on your own held-out data** (S3). No leaderboard substitutes for that.
+
+**"Is Hugging Face required?"** No — it's convenience infrastructure, and you could implement all of it yourself. That's the point: it's the reason you didn't have to write attention, LoRA, or a DPO trainer from scratch.
 
 ---
 
