@@ -10,6 +10,34 @@
 
 ---
 
+## 0. The idea in plain language
+
+Weeks 1–16 were about the **model**. This week is about **everything around it** — and the claim is that the surroundings matter more than people assume.
+
+**The evidence, and it's a good hook:** take one model, hold it completely constant, and run it inside three different agent scaffolds. The scores differ by several points. **Same model, same weights, same everything — different wrapper, different capability.**
+
+Which means two things. If you're comparing models by benchmark scores, you're partly comparing *harnesses*. And if you want your product to get better, the harness is a lever **you control**, unlike the model.
+
+The lecture is three angles on one problem:
+
+**1. Harness — what wraps the model.** The tools it has, how errors are reported back, how the loop is structured. The recurring finding: an agent's failures are usually **harness failures wearing a model costume**. A vague tool description means the model picks the wrong tool. An opaque stack trace means it can't recover. Fix those and the "dumb model" gets noticeably smarter.
+
+**2. Context — what goes in the window.** Week 10 showed context rot is real and follows from attention being a fixed budget. The response here is a discipline: **just-in-time context** rather than pre-loading everything, at the **right altitude** — enough detail to act, not so much that it drowns. Every token you add is a bet against accuracy.
+
+**3. Evals — how you know any of it worked.** And this is where most teams are weakest.
+
+**The eval section is the part worth reading twice**, because it names three specific ways people fool themselves:
+
+- **Generic metrics are a mirage.** "Helpfulness: 7.2/10" tells you nothing actionable. It doesn't say what's broken or what to fix.
+- **The 5-star lie.** Ask a model to rate something 1–5 and you get numbers that look like data and aren't. The scale isn't calibrated, and small differences are noise.
+- **`pass@k` vs `pass^k`** — the distinction that matters most in practice. `pass@k` asks *"did it succeed at least once in k tries?"* — which flatters a model wildly. `pass^k` asks *"did it succeed **every** time?"* Production users get one try. **If you're reporting pass@k, you're reporting a number your users will never experience.**
+
+The constructive answer is **critique shadowing**: instead of inventing a rubric in the abstract, have a domain expert review real outputs, write down *why* each is good or bad, and build the rubric from what they actually said. Then check your LLM judge against their labels — an unaligned judge is a random number generator with good grammar.
+
+**The single sentence to carry out of this week:** when an agent underperforms, the first question isn't "is the model good enough?" — it's **"can the model see what it needs, and can it tell what went wrong?"**
+
+---
+
 ## The motivating fact
 
 **Terminal-Bench 2.0 — same model, different harness:**
@@ -262,6 +290,32 @@ Both computed from the same trials, telling opposite stories. `pass@k` rises wit
 1. **Agent = Model + Harness.** The harness is part of the model's effective parameters.
 2. **Context is finite — in performance.** Smallest set of high-signal tokens; **JIT > pre-load**.
 3. **Evals are training data.** Binary > Likert, aligned LLM judge, **the flywheel never ends.**
+
+---
+
+## Common confusions
+
+**"What is a 'harness', concretely?"** Everything around the model call: the tool definitions, how tool results and errors are formatted back, the loop structure, what context gets assembled, retries, and stopping conditions. If the model is the engine, the harness is the entire rest of the car.
+
+**"How can the same model score differently?"** Because the model only ever sees what the harness gives it. Different tools, different error messages, different context assembly → different information → different decisions. The weights are identical; the *situation* isn't.
+
+**"My agent seems dumb — should I upgrade the model?"** Check the harness first, in this order: are tool **descriptions** clear enough to choose from? Do **errors** come back as readable text it can act on, or as opaque traces? Is context **curated or accumulated**? Are there **too many tools** (past ~20–30, selection accuracy degrades)? A bigger model with the same bad feedback makes the same mistakes more expensively.
+
+**"What does 'right altitude' mean?"** The level of detail that lets the model act without drowning it. Too low: raw dumps of everything, and the signal is lost in noise. Too high: a summary so abstract it can't act on it. Most teams err toward too much, because adding context feels safe — Week 10 shows it isn't.
+
+**"Pre-loaded vs just-in-time context?"** Pre-loading stuffs everything the model *might* need into the window up front. Just-in-time fetches it *when* it's needed, via tools. JIT keeps the window small and relevant, at the cost of extra round-trips. Given context rot, JIT is usually right for long-horizon work.
+
+**"Why are generic metrics a mirage?"** Because "helpfulness: 7.2" is unactionable. It doesn't tell you what broke, which cases fail, or what to change. Useful evals are **specific and binary**: did it cite a real source? Did the code run? Did it refuse when it should have? You can act on those.
+
+**"What's wrong with asking a model to rate 1–5?"** The scale isn't calibrated — the model has no consistent internal notion of what separates a 3 from a 4, and the numbers drift with phrasing and ordering. You get output that *looks* quantitative and carries far less information than it appears to. Binary or few-category rubrics with explicit criteria are far more reliable.
+
+**"pass@k vs pass^k — what's the practical difference?"** `pass@k` = succeeded **at least once** in k attempts. `pass^k` = succeeded **every** time in k attempts. Your users get one attempt, so `pass@k` systematically overstates what they'll experience — and the gap widens as the task gets harder. A model at 80% pass@5 might be at 30% pass^5. Report the one that matches how the system is actually used.
+
+**"What is critique shadowing?"** Rather than inventing a rubric from your imagination, have a **domain expert** review real outputs and write down *why* each is good or bad, in their own words. Build the rubric from their reasoning. It surfaces criteria you'd never have guessed, and it's grounded in what actually matters for the task.
+
+**"Do I need to align an LLM judge?"** Yes, and this isn't optional. An unaligned judge produces confident scores uncorrelated with what you care about — a random number generator with good grammar. Label a sample by hand, measure agreement with the judge, and iterate on the judge prompt until they agree. Then keep spot-checking (S3).
+
+**"Isn't a judge model just moving the problem?"** Partly — you're substituting one model's judgement for a human's, and inheriting its biases (notably length preference). It's justified because it scales, and it's only safe once calibrated against human labels on a sample you keep.
 
 ---
 
