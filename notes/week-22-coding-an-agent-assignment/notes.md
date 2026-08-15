@@ -13,6 +13,40 @@
 
 ---
 
+## 0. The idea in plain language
+
+**Read the scope note above first** — this assignment has no LLM in it. It's a distributed-systems exercise, and understanding *why* it's here makes it much more valuable than treating it as a detour.
+
+**What you're building:** a system that accepts a **workflow** — a set of steps with dependencies — and runs those steps in the right order, in parallel where possible, on a pool of worker machines, without losing work when something crashes.
+
+```
+   fetch-data ──┐
+                ├──► transform ──► publish
+   fetch-config ┘
+```
+
+Steps 1 and 2 have no dependency on each other, so they can run **at the same time**. `transform` can't start until both finish. `publish` waits for `transform`. Working out that order automatically is **DAG resolution** — a directed acyclic graph, where edges are dependencies and "acyclic" means no step can eventually depend on itself.
+
+**The four hard parts, and why each is hard:**
+
+**1. Dependency resolution.** Given the graph, repeatedly find the steps whose dependencies have all completed, and dispatch those. Straightforward once stated; easy to get subtly wrong with partial failures.
+
+**2. A queue.** Ready steps go into Redis; workers pull from it. This decouples *deciding what to run* from *running it*, so you can add workers without changing the scheduler.
+
+**3. Pod leasing.** A worker **leases** a runner pod for a step — takes exclusive ownership for a bounded time. The lease matters because workers die. If a worker crashes mid-step, its lease expires and the step becomes available again. Without leases you either lose work silently or run it twice.
+
+**4. A status lifecycle.** Each step moves through explicit states (pending → ready → running → succeeded/failed). The state must be **durable**, because the whole point is surviving a crash and resuming rather than restarting.
+
+**Why this belongs in an AI course**, and the connection is real rather than a stretch:
+
+An agent (Week 8) is a loop. **LangGraph (Week 21) is that loop expressed as a graph with state** — and the moment you want it to survive crashes, run branches in parallel, pause for human approval, and resume, **you have written an orchestration engine.** LangGraph's checkpointing, resumability, and parallel branches are exactly the problems in this assignment, solved in a library.
+
+So this is the systems layer *underneath* the abstraction you used last week. Build it once by hand and LangGraph's design choices stop looking arbitrary — you'll know why state must be serialisable, why nodes return updates rather than mutating, and why persistence is the feature everything else depends on.
+
+It's also, unglamorously, **the layer most AI products actually fail at.** The model works; the orchestration around it loses jobs, double-runs steps, and can't resume. That's a distributed-systems problem, not an AI one.
+
+---
+
 ## The goal
 
 Build a mini workflow orchestration system where:
@@ -459,6 +493,26 @@ The assignment has no LLM in it, but the architecture is exactly what an agent r
 | **Idempotency on re-enqueue** | `@task` idempotency on replay (**Week 21**) |
 
 Swap `execInPod(podId, command)` for `callModel(prompt)` and you have a multi-agent orchestrator. The point of the exercise is that **the hard parts of agent infrastructure are distributed-systems problems**, not model problems — which is Week 17's "if you're not the model, you're the harness," made concrete.
+
+---
+
+## Common confusions
+
+**"Why is there no LLM in an AI course assignment?"** Because the orchestration layer *underneath* agent frameworks is where real systems break. Week 21's LangGraph gives you checkpointing, resumability, and parallel branches as features; this is what implementing them costs. Build it once and those design choices stop looking arbitrary.
+
+**"What is a DAG and why does it matter here?"** A **directed acyclic graph**: steps are nodes, dependencies are directed edges, and "acyclic" guarantees no step transitively depends on itself. It matters because the graph *is* the execution plan — it tells you what can run now (all dependencies satisfied) and what must wait. Reject cyclic input explicitly; a cycle means the workflow can never complete and it's better to fail fast than to deadlock.
+
+**"Why a queue instead of calling the workers directly?"** Decoupling. The scheduler decides *what's ready*; workers decide *when they can take work*. Add or lose workers and nothing else changes. It also gives you a natural buffer when more steps are ready than you have capacity for.
+
+**"What is pod leasing actually solving?"** Worker death. A lease is time-bounded exclusive ownership: if a worker crashes mid-step, its lease expires and the step returns to the queue. Without leases you get one of two bad outcomes — the step is lost forever, or two workers run it simultaneously. Both are worse than the complexity of leasing.
+
+**"What happens if a step runs twice anyway?"** It can, and you should assume it will — this is why **idempotency** matters. A lease can expire while the worker is actually still alive but slow, so it finishes and a second worker has already started. Design steps so running them twice is safe, rather than trying to guarantee it never happens.
+
+**"Why must status be durable rather than in memory?"** Because the entire value proposition is surviving a crash. If step status lives only in the scheduler's memory, a scheduler restart loses everything and you re-run the whole workflow. Durable status is what makes resumption possible — the same reason LangGraph's state must be serialisable.
+
+**"How does this map back to LangGraph?"** Directly. Steps ↔ nodes. Dependencies ↔ edges. Durable step status ↔ checkpointed state. Lease expiry and retry ↔ error handling and resumption. Parallel dispatch of independent steps ↔ parallel branches. You are building the engine that LangGraph wraps.
+
+**"Is the 13/12/2026 date real?"** Almost certainly a typo for **13/06/2026** — it sits between Week 21 (06/06) and Week 23 (20/06), and the linked repo is literally named `13-june-assignment`.
 
 ---
 
