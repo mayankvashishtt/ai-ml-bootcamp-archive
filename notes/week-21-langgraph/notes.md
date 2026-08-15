@@ -11,6 +11,62 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 8's agent was a `while` loop:
+
+```python
+while not done:
+    think → pick tool → run tool → observe
+```
+
+That works, and for many agents it's genuinely all you need. **This week is what to do when it stops being enough.**
+
+**Where the plain loop breaks down:**
+
+- You need **different paths** — if the question is about billing, do X; if it's technical, do Y
+- You need **a human to approve** something mid-run, then resume where it left off
+- The process **crashes at step 7** and you'd like not to redo steps 1–6
+- You need to **see what happened**, and a loop with mutated local variables is opaque
+- Several steps could run **in parallel**
+
+Retrofitting all that into a `while` loop produces a tangle of flags and nested conditionals that nobody can reason about.
+
+**LangGraph's reframe: stop writing a loop, and describe a state machine.**
+
+You define three things:
+
+- **State** — one object holding everything the run knows, passed from step to step
+- **Nodes** — functions that take state and return an updated state ("call the model," "run the tool," "check the answer")
+- **Edges** — which node runs next, either fixed or **conditional** on the state
+
+```
+        ┌──────────┐
+        │  agent   │◄──────────┐
+        └────┬─────┘           │
+             │ conditional     │
+      ┌──────┴──────┐          │
+      ▼             ▼          │
+  ┌───────┐    ┌────────┐      │
+  │ tools │    │  END   │      │
+  └───┬───┘    └────────┘      │
+      └────────────────────────┘
+```
+
+**Once the flow is data rather than control flow, you get things for free** — and this is the actual argument for the framework:
+
+- **Persistence** — state is a serialisable object, so you can checkpoint it and resume after a crash
+- **Human-in-the-loop** — pause at a node, wait for approval, resume. Trivial with checkpoints, painful in a loop
+- **Observability** — every node transition is a recordable event, so you can see exactly what path a run took
+- **Time travel** — rewind to an earlier state and try a different branch
+- **Parallelism** — independent branches are visible in the graph, so they can run concurrently
+
+**The honest framing, and the lecture makes it:** this is **machinery, and machinery has a cost.** A three-step agent in LangGraph is more code and more concepts than the same agent as a loop. Reach for it when the complexity is *real* — branching, approval gates, resumability — not in anticipation of complexity that may never arrive. Week 8's loop remains the right default.
+
+**One distinction worth fixing now, because it confuses people later:** LangGraph is about **control flow** — what runs next. MCP (S8) is about **integration** — how a tool is exposed and consumed across a process boundary. They're different layers and they compose: a LangGraph node can call an MCP tool. Asking "LangGraph or MCP?" is like asking "state machine or USB?"
+
+---
+
 ## Where we are
 
 - **Week 8** — agent from scratch: `while`-loop + tool dispatch
@@ -281,6 +337,30 @@ A refreshingly honest slide. The framework is justified by *durability and contr
 > ### **Make control flow visible. The graph is the program.**
 
 In Week 8 the agent's control flow was implicit in Python — you couldn't inspect it, visualise it, pause it, or resume it. Making the graph an explicit data structure is what enables everything else: you can draw it, checkpoint it, interrupt it, replay it, and fork it, precisely because the structure is data rather than code.
+
+---
+
+## Common confusions
+
+**"Do I need LangGraph to build an agent?"** No. Week 8's `while` loop is a complete agent and remains the right default. LangGraph earns its cost when you need branching, approval gates, resumability, or visible parallelism — not before.
+
+**"What's the actual difference from a `while` loop?"** The loop encodes control flow in **code**; the graph encodes it in **data**. Once "what happens next" is a data structure, tooling can inspect it, checkpoint it, replay it, and visualise it. That's the whole payoff — everything else follows from making flow inspectable.
+
+**"What exactly is 'state'?"** One object carrying everything the run knows — messages so far, tool results, intermediate values, flags. Every node receives it and returns an updated version. Because it's a plain serialisable object, you can save it, which is what makes persistence and resumption possible.
+
+**"Why do people say nodes should return updates rather than mutate?"** Because a returned update can be **merged, logged, and replayed**. Mutating shared state in place destroys the history that makes checkpointing and time travel work. It's the same reason functional updates are preferred in front-end state management.
+
+**"What's a conditional edge?"** A function that inspects the state and returns the name of the next node. It's the `if` statement, lifted out of the loop body and made part of the graph — which is precisely what makes routing visible rather than buried.
+
+**"How is this different from a normal workflow engine like Airflow?"** Traditional engines run **fixed DAGs** decided in advance. LangGraph supports **cycles** and lets the *model* decide the route at runtime via conditional edges. The graph is a constraint on what's possible, not a script of what will happen.
+
+**"LangGraph or MCP?"** Different layers, and the question is malformed. **LangGraph is control flow** — what runs next. **MCP is integration** — how a capability is exposed across a process boundary. A LangGraph node can call an MCP tool. They compose.
+
+**"LangGraph or multi-agent?"** Also different layers. Multi-agent (S12) is a *pattern* — several agents with separate contexts. LangGraph is *orchestration machinery* you might use to implement it. You can build multi-agent systems with or without it.
+
+**"When is it the wrong choice?"** Simple linear tasks; anything where a single well-tuned prompt suffices; latency-critical paths where framework overhead matters; and small teams who'd spend more time learning the abstraction than the problem warrants. Complexity you don't need is still complexity.
+
+**"Does it lock me in?"** Somewhat — your control flow is expressed in its abstractions. Mitigate by keeping tool implementations and prompts as plain functions and strings that the graph merely *calls*, so the portable parts stay portable.
 
 ---
 
