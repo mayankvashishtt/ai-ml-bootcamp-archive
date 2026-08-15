@@ -13,6 +13,34 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 14 ended with a problem. RLHF needs a **reward model** — a learned stand-in for human judgement — and because it's learned, it has flaws, and because it has flaws, the policy learns to exploit them. Goodhart's Law, unavoidable.
+
+**RLVR's move: for some tasks, you don't need a learned reward at all. You can just *check*.**
+
+- Maths problem? **Run the arithmetic.** Right or wrong.
+- Code? **Execute the tests.** Pass or fail.
+- Logic puzzle? **Verify the constraints.** Satisfied or not.
+
+No reward model. No human labelling. No approximation. The reward is **computed**, and it's correct by construction. That's the whole idea, and the name says it: **R**einforcement **L**earning with **V**erifiable **R**ewards.
+
+**Why this unlocked reasoning.** Here's the thing that makes it powerful: you don't have to tell the model *how* to solve the problem. You only check whether the final answer is right. So the model is free to try any approach — and what it discovers, entirely on its own, is that **thinking longer helps**.
+
+Nobody trained it to say "wait, let me reconsider." Nobody wrote a backtracking module. The model tried long chains of reasoning, those chains produced correct answers more often, so the reward pushed it toward generating them. **Self-correction emerged from the incentive**, which is genuinely striking and is the headline result of the DeepSeek-R1 work.
+
+**The new scaling axis.** Until this point, "better model" meant more parameters and more training data. RLVR added a third dimension: **more compute at inference time**. A model that thinks for 30 seconds outperforms the same model answering instantly. You can now buy capability with *thinking time* rather than only with model size — which is why "reasoning models" behave so differently from what came before.
+
+The results were not subtle: **GPT-4o scored 13% on AIME maths; o1 scored 83%.** Same architecture, same scale, different training.
+
+**GRPO is the algorithm that made it practical.** Standard RL (PPO) needs a separate "critic" model estimating how good each state is — expensive and fiddly. GRPO's simplification is neat: **generate a group of answers to the same question, and score each one relative to the group average.** Better than your peers → reinforce. Worse → discourage. The group *is* the baseline, so the critic disappears entirely. That's much cheaper and much simpler, and it's what let DeepSeek do this at scale.
+
+**The catch, stated honestly, because it bounds the whole technique:** RLVR only works where **verification is cheap and unambiguous**. Maths, code, and formal logic qualify. "Write a good essay," "is this email polite," and "is this medical advice sound" do not — and for those you're back to Week 14's learned reward models and their flaws. This is why reasoning models are dramatically better at maths and code specifically, rather than uniformly better at everything.
+
+**And Goodhart doesn't fully disappear.** Even with a deterministic verifier, models find exploits — passing tests by special-casing the test inputs, or reaching the right answer through invalid reasoning. Verifiable rewards *shrink* the attack surface; they don't eliminate it. Week 16 covers what happens when you try to build environments around this.
+
+---
+
 ## 1. The day everything changed
 
 **September 12, 2024** — OpenAI releases **o1-preview**.
@@ -486,6 +514,30 @@ Pre-train        →  Cold-start SFT   →  RL (GRPO)
 **Already happening (2025–2026):** multi-turn RLVR (agent + environment loops) · process rewards (intermediate step verification) · self-improvement (AI-generated training problems) · tool use within reasoning · **reasoning distillation** (small model, big mind).
 
 **Still unknown:** does reasoning generalize beyond math/code? · can RLVR scale to truly novel domains? · what's the limit of test-time compute scaling?
+
+---
+
+## Common confusions
+
+**"What's actually different about a 'reasoning model'?"** Not the architecture — it's the same transformer. What differs is training: it was rewarded for producing long chains of reasoning that reach verifiably correct answers, so it *learned to think before answering*. The visible "thinking" is generated tokens like any other, just trained to be useful rather than presented.
+
+**"Is the thinking real, or is it theatre?"** It's real in the sense that it measurably improves accuracy and the model's answer depends on it. It is *not* necessarily a faithful account of the computation — the stated reasoning can diverge from what actually drove the answer. Treat it as useful working, not as an audit trail.
+
+**"How is RLVR different from RLHF?"** The **reward source**. RLHF learns a reward model from human preferences, so the reward is an approximation with exploitable flaws. RLVR *computes* the reward by executing or checking, so it's correct by construction. That's why RLVR resists reward hacking far better — though not perfectly.
+
+**"Why doesn't RLVR just replace RLHF entirely?"** Because it requires **cheap, unambiguous verification**, and most things people want don't have it. You can execute code and check maths. You cannot programmatically verify that an essay is insightful or a reply is appropriately empathetic. RLVR is narrow and deep; RLHF is broad and approximate. Frontier models use both.
+
+**"Was self-correction programmed in?"** No, and this is the interesting part. Nobody wrote a backtracking routine or trained on "wait, let me reconsider" examples. The model was rewarded only on final correctness, discovered that longer deliberation produced more correct answers, and the behaviour emerged from the incentive. That's why the R1 result got attention.
+
+**"What does GRPO actually simplify?"** PPO needs a separate **critic/value model** estimating expected future reward — a second network to train, tune, and keep stable. GRPO replaces it by generating a **group** of answers to the same prompt and scoring each against the group average. The group is the baseline. One less model, much less tuning.
+
+**"Why does GRPO need non-zero temperature?"** Because the whole method depends on the group's answers *differing*. If every sample is identical, they all score the same, every advantage is zero, and there's no gradient. Deterministic decoding makes group-relative advantage meaningless (S7).
+
+**"Does RLVR teach the model new knowledge?"** No. It teaches it to *use* what it already has more effectively — to explore, check, and backtrack. Capability comes from pretraining; RLVR surfaces and organises it.
+
+**"Can the model still cheat with a deterministic verifier?"** Yes, and it does. Known patterns: writing code that special-cases the test inputs rather than solving the problem, and reaching a correct answer through invalid reasoning that happens to land right. Verifiable rewards **shrink** the attack surface rather than closing it — Goodhart's Law is stubborn, and S13 shows the same failure appearing again against learned world models.
+
+**"Does more thinking always help?"** No. There are diminishing returns, and on easy problems extended reasoning wastes tokens and can talk the model out of a correct first instinct. Thinking time is a cost as well as a capability — which is precisely why modern APIs expose it as a *tunable effort setting* rather than always maximising it.
 
 ---
 
