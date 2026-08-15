@@ -6,6 +6,41 @@
 
 ---
 
+## 0. The idea in plain language
+
+Everything you've done so far has left the model **untouched**. Prompting talks to it. RAG hands it documents. Agents give it tools. The weights never changed.
+
+**This week you change the weights.**
+
+**What fine-tuning actually is:** take a model someone else spent millions of dollars training, and run Week 2's training loop on it a bit more, using *your* data. Forward pass, measure loss, backpropagate, update weights. Identical mechanism, different data, vastly smaller scale.
+
+> **Fine-tuning is not magic — it's gradient descent on different data.**
+
+The analogy that fits: you're not teaching a child to read, you're training a graduate for a specific job. The general capability is already there; you're specialising it.
+
+**The decision that actually matters**, and the one people get wrong constantly:
+
+| The symptom | The fix |
+|---|---|
+| The model doesn't **KNOW** something | **RAG** (or CPT) |
+| The model doesn't **DO** something well | **SFT** — fine-tuning |
+| It does it, but **not the way humans want** | **RLHF / DPO** (Week 14) |
+| It needs to **reason better** | **RLVR** (Week 15) |
+
+**RAG adds knowledge. Fine-tuning changes behaviour.** Trying to fine-tune facts into a model is the classic expensive mistake — the moment your documents change, the model is confidently stale with no way to signal it.
+
+**And now the problem that dominates the rest of this lecture: you can't afford it.**
+
+To train a model you need it in GPU memory roughly **four times over** — the weights, plus one gradient per weight, plus the optimiser's two running statistics per weight. Add activations and you're at 6–8×. A 7B model is 14 GB of weights and something like **84 GB to train**. That doesn't fit on hardware you own.
+
+**LoRA is the fix, and the idea is elegant.** Instead of updating all 7 billion weights, **freeze them all** and inject tiny trainable matrices alongside. You train maybe 0.1% of the parameter count. And because the frozen weights produce **no gradients and no optimiser states**, the two largest memory terms disappear entirely — that's the real win, bigger than the parameter saving itself.
+
+**QLoRA goes further** by also compressing the frozen weights to 4-bit. Now a 7B fine-tune fits on a single consumer GPU.
+
+**The third piece is CPT (Continued Pre-Training)** — feeding the model raw domain text with the same next-token objective it was originally trained on. Not question-answer pairs, just text. You use it when the model doesn't speak your domain's language at all. Note the subtle point in §2: if the model can't parse your domain's vocabulary, **RAG hands it text it cannot understand** — so sometimes you need CPT to make RAG work.
+
+---
+
 ## The journey so far
 
 | Stage | What it does |
@@ -444,6 +479,30 @@ Evaluated on the SEC test set (domain) and general text (wikitext).
 > **CPT teaches the model to SOUND like a domain. SFT teaches the model to RESPOND to instructions.**
 
 CPT uses the *same objective as pre-training* — next-token prediction on raw text — so it produces a better autocompleter, not an assistant. Turning an autocompleter into an assistant is Week 13's job.
+
+---
+
+## Common confusions
+
+**"Should I fine-tune or use RAG?"** The most-confused decision in applied AI, so be precise: **RAG changes what the model *knows*; fine-tuning changes how it *behaves*.** Anything that updates — documents, prices, policies, code — is knowledge and belongs in RAG. Format, tone, refusal style, domain vocabulary, and house conventions are behaviour and belong in fine-tuning. The best production systems use both.
+
+**"But my fine-tuned model *did* learn facts."** It memorised some, yes — unreliably, unverifiably, and with no citation. It will also confidently produce the *old* fact after your documents change, with no signal that it's stale. Memorisation is a side effect, not a feature you should depend on.
+
+**"Why does training need 4× the model size? Isn't one copy enough?"** One copy is enough to *run* it. Training additionally needs a **gradient** for every weight (1× more), and AdamW keeps **two running statistics** per weight — momentum and variance (2× more). Add activations retained for the backward pass and real usage is 6–8×. This single table explains every technique in the rest of the lecture.
+
+**"Why does LoRA work if it only trains 0.1% of the parameters?"** The empirical finding is that the *update* a fine-tune needs is low-rank — it doesn't require independently adjusting every weight, because the adaptation is a relatively simple transformation of what's already there. You're not re-teaching the model; you're nudging it. That the nudge compresses so well is genuinely surprising, and it's why LoRA was a big deal.
+
+**"Is QLoRA's benefit mainly the 4-bit quantisation?"** No, and this is worth getting right. Quantising the frozen base cuts the *parameter* term ~4× (14 GB → ~3.5 GB), which is useful. But **freezing** eliminates the gradient term *and* the optimiser-state term entirely — and those are the two largest. Framing QLoRA as "quantisation saves memory" badly understates it. (S10 §3 works through the arithmetic.)
+
+**"Does LoRA hurt quality versus full fine-tuning?"** Usually very little for typical adaptation tasks, and it has real advantages: no catastrophic forgetting of general ability (the base is untouched), adapters are small enough to version and ship, and you can swap adapters per customer at serve time. Full fine-tuning is worth it when you need to shift deep behaviour and have the cluster to do it.
+
+**"What is catastrophic forgetting?"** Training hard on narrow data can degrade capabilities the model previously had — it gets better at your task and worse at everything else. Mitigations: lower learning rates, fewer epochs, mixing in general data, and LoRA (which leaves the base weights intact by construction).
+
+**"When do I need CPT rather than SFT?"** CPT feeds **raw text** with the original next-token objective; SFT feeds **instruction–response pairs**. Use CPT when the model doesn't understand your domain's *language* — medical, legal, or chemical vocabulary it barely saw in pretraining. Use SFT when it understands the words fine but doesn't respond the way you want. CPT typically comes first, then SFT.
+
+**"Which weight matrices should LoRA target?"** The attention projections (`q_proj`, `k_proj`, `v_proj`, `o_proj`) are the common default, with the FFN matrices (`gate_proj`, `up_proj`, `down_proj`) added when you want more capacity. Every one of these names was built in Week 7 — Q/K/V/O from GQA, gate/up/down from SwiGLU.
+
+**"How much data do I need?"** Far less than people expect, and quality dominates quantity — Week 13 and S11 cover this. A few thousand excellent, diverse, consistent examples beat a hundred thousand mediocre ones, because SFT is imitation learning and mediocre examples teach mediocrity.
 
 ---
 
