@@ -10,6 +10,33 @@
 
 ---
 
+## 0. The idea in plain language
+
+An LLM by itself is a **text-in, text-out** function. It cannot read a file, search the web, run code, or check today's date. It knows only what was baked into its weights during training, frozen at some point in the past.
+
+**An agent is what you get when you close a loop around that function.**
+
+Here's the entire trick, and it's smaller than people expect:
+
+1. You tell the model *"here are some tools you can ask for."*
+2. The model replies with text saying **"please run `search(query='...')`."**
+3. **Your code** — not the model — actually runs it.
+4. You paste the result back into the conversation as more text.
+5. The model reads that result and decides what to do next.
+6. Repeat until it says *"I'm done, here's the answer."*
+
+**The critical thing to understand: the model never does anything.** It only ever emits text. When people say "the AI ran a command" or "the AI edited my file," what actually happened is the model produced a string describing what it wanted, and a Python script parsed that string and called a function. The model is a very good suggestion engine wired into a `while` loop.
+
+**Three consequences follow immediately, and they're the whole security and design story:**
+
+- **An agent can only do what its tools allow.** Give it four tools, it can do four things. This is the security boundary, and it's a hard one.
+- **The loop is where the intelligence appears.** One-shot, the model guesses. In a loop, it tries something, *sees the actual result*, and corrects. Tools are the only channel through which genuinely new information reaches a model with frozen weights.
+- **Everything accumulates.** The model is stateless — it remembers nothing between calls — so every iteration re-sends the entire conversation so far. That's why long agent runs get expensive and eventually hit the context limit, and it's the problem Weeks 10, 17, and 18 exist to solve.
+
+The formula the lecture uses is exactly right: **Agent = LLM + Tools + Loop.** There is no fourth ingredient and no framework required — the notebook proves it in about 60 lines.
+
+---
+
 ## 1. The evolution: autocomplete → chat → agent
 
 | Year | Stage | Example | What it does |
@@ -344,6 +371,28 @@ The sandboxing here is thin and worth naming:
 - `write_file` can write **anywhere** the process can reach — no path confinement
 
 Fine for a lesson; **do not lift this into anything real** without a sandbox, path restrictions, and an execution timeout you actually trust.
+
+---
+
+## Common confusions
+
+**"Does the model actually run the tool?"** No, and this is the single most important thing to get right. The model emits *text* describing a request. Your code parses it, calls the function, and pastes the result back. Everything the agent can do is bounded by what you implemented.
+
+**"If the model is stateless, how does ChatGPT remember our conversation?"** It doesn't — the *application* does. Every request re-sends the entire history. Watch the prompt-token count climb from 23 to 184 in §5 and you can see it happening. "Memory" is a UI feature built on resending text.
+
+**"Is function calling different from the ReAct prompt format?"** They achieve the same thing two ways. **Function calling** is native API support — you pass a `tools` schema, the model returns structured JSON, and `finish_reason` becomes `tool_calls`. **ReAct** is a pure prompting convention — you *ask* the model to write `ACTION: name`, then parse it with regex. ReAct works on any instruction-following model, which is why it spread fast; native function calling is more reliable when available, because the format is enforced rather than requested.
+
+**"Why return errors instead of raising them?"** Because an exception ends the run, while an observation lets the agent read the failure and try something else. `{"error": "Unknown tool 'searchWeb'. Available: [search_web, calculate]"}` is a *teaching* message. This is the highest-leverage single decision in agent design, and Week 17 returns to it.
+
+**"Why does the agent sometimes produce unparseable output?"** Because ReAct format is requested, not enforced — the model is free to ignore it. That's why the loop has a format-recovery branch, and why iteration 1 in the notebook demo actually failed. Real agents misformat constantly. (S7's constrained decoding is the structural fix.)
+
+**"Why cap iterations?"** A confused agent will loop forever, burning tokens on every pass. `max_iterations` is a cost control and a safety rail, not a nicety.
+
+**"Why does a 10-step agent cost so much more than 10 single calls?"** Because step 10 re-sends everything from steps 1–9. Input tokens grow with each iteration, so total cost grows roughly quadratically in steps rather than linearly. This is why observations get truncated (800 chars for Wikipedia, 3000 for file reads).
+
+**"Is more tools better?"** No. Claude Code ships with roughly four core file/shell tools. Beyond about 20–30 tools, models get measurably worse at *choosing* correctly. Capability comes from the loop, not the tool count — and consolidating overlapping tools is often a bigger win than adding one.
+
+**"Is this notebook's code safe to reuse?"** No. `run_python` executes arbitrary code via subprocess, `calculate` uses `eval()` behind a character allowlist, and `write_file` has no path confinement. It's acceptable only because it runs in a disposable Colab VM. See §9 and S4.
 
 ---
 
