@@ -5,7 +5,7 @@
 **Source:** `downloads/week-00-orientation.pdf` (6 slides)
 **Notion page:** https://100xschool.notion.site/2e3ffffa33e5807da538db58eeb3aa52
 
-> **Scope note:** the original deck is 6 slides of housekeeping. Sections 1–4 below cover it completely. **Sections 5–8 are added** — they're the orientation a genuine beginner needs before Week 1 opens with "what is intelligence," and they exist so you can start from zero. If you already know the field's basic vocabulary, skim to §9.
+> **Scope note:** the original deck is 6 slides of housekeeping. Sections 1–4 below cover it completely. **Sections 5–8 are added** — they're the orientation a genuine beginner needs before Week 1 opens with "what is intelligence," and they exist so you can start from zero. If you already know the field's basic vocabulary, skim to §8.
 
 ---
 
