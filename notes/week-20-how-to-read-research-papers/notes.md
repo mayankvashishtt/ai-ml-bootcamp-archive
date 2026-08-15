@@ -9,6 +9,35 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 0 stated four goals, and the fourth was *"how to stay up to date when new things ship every day."* This is the lecture that answers it — and the answer is a **skill**, not a reading list. Reading lists expire; this doesn't.
+
+**The framing that makes it tractable:**
+
+> **90% of papers don't matter. 10% change how you build. The skill is identifying the 10% fast.**
+
+You are not trying to read papers thoroughly. You're trying to **triage** them — spend two minutes deciding whether a paper deserves twenty. Most don't, and that's fine.
+
+**Three things this lecture teaches, in increasing difficulty:**
+
+**1. Triage — read in passes, not linearly.** Nobody reads a paper front to back on the first pass. You read the abstract, look at the figures, read the conclusion, and *then* decide whether to go deeper. Most papers stop at pass one. This alone changes your throughput by an order of magnitude.
+
+**2. Bullshit detection.** The most valuable section, and it's specific rather than cynical. The recurring red flags:
+
+- **Missing baselines** — the new method is compared against a weak or untuned version of the alternative. If someone reports a big win, ask *what exactly did they compare against, and was it tuned as carefully as their method?*
+- **Cherry-picked benchmarks** — strong results on three tasks, silence on the ten where it lost.
+- **No ablations** — a paper with five components and no analysis of which one mattered hasn't shown you what works.
+- **Unreproducible setups** — no code, no hyperparameters, no seeds.
+
+You've already met this pattern twice in the course without it being named: Week 10's PageIndex result (54% vs 98.7%) is against **naive** RAG, not advanced RAG. Week 11's RLM figures come from a citation that doesn't resolve. **Neither is dishonest; both need the question asked.**
+
+**3. Surviving the maths.** The section that unblocks most people. The key reframe is that **notation is vocabulary, not intelligence** — you don't need to derive anything, you need to *read* it. Learn what Σ, 𝔼, ∇, argmax, and subscript conventions mean, and most ML equations become sentences rather than walls. The 5-step method in §6 is: identify what each symbol *is* (scalar? vector? distribution?), read the equation aloud in words, work a tiny numeric example, check the edge cases, and only then worry about why it's the right equation.
+
+**Why this is a first-class deliverable rather than a bonus.** The specific techniques in this course have a half-life measured in months. LangGraph may be superseded; the decoding parameters in S7 already have been. **The ability to read a paper, extract the mechanism, and judge whether the evidence supports the claim is the thing that doesn't expire.** It's also, bluntly, what separates people who use AI tools from people who build them.
+
+---
+
 ## Part 1 — Why papers, why now
 
 - **The field moves in weeks, not years.**
@@ -328,6 +357,28 @@ Note this closes the loop with Part 1's *"tweets are downstream of papers."* Twi
 > - **Most papers don't matter.**
 > - **The ones that do deserve the five-step method.**
 > - **This is a skill. Practice is the only path.**
+
+---
+
+## Common confusions
+
+**"Do I need to understand every equation?"** No — and trying to is the main reason people give up. Most equations are restating something the prose already said. Identify what the paper *does* first; return to the maths only for the one or two equations that carry the actual novelty.
+
+**"I don't have the maths background."** The blocker is almost always **notation**, not mathematics. Σ, 𝔼, ∇, argmax, and subscript conventions are vocabulary. Learn maybe fifteen symbols and most ML papers become readable. §5 is that list.
+
+**"How do I know if a result is real?"** Ask three questions in order. **What's the baseline, and was it tuned as hard as the proposed method?** (This catches most inflated results.) **Which benchmarks are shown, and which are conspicuously absent?** **Are there ablations** showing which component actually did the work? A paper failing all three is a press release with citations.
+
+**"Why does 'missing baseline' keep coming up?"** Because it's the easiest way to produce a large number honestly. Compare your tuned method against someone else's untuned one and you'll win by a lot without anyone lying. You've seen it twice already in this course — Week 10's PageIndex comparison is against *naive* RAG, and multi-agent claims (S12) routinely compare against an untuned single agent.
+
+**"Should I distrust everything?"** No — that's as useless as believing everything. The goal is **calibrated** reading: separate the **mechanism** (usually sound, and the transferable part) from the **reported numbers** (often optimistic, and setup-dependent). Week 11's RLM is a good case: the mechanism is well-motivated and Week 10's evidence independently supports the direction, while the specific figures come from a citation that doesn't resolve.
+
+**"How much time should one paper take?"** Two minutes to triage. Twenty for a paper that passes. Two hours only for the rare paper you intend to implement or build on. If everything is taking two hours, your triage is broken.
+
+**"Where do I even find the 10%?"** Signals that a paper is worth a look: it's being implemented rather than just retweeted; the authors released code; people are reporting *reproductions* rather than reactions; and it's cited by work you already trust. Volume of discussion is a weak signal — **tweets are downstream of papers**, and downstream of hype.
+
+**"What about the maths in the appendix?"** Usually safe to skip on the first two passes. Appendices carry proofs and hyperparameters. Read the hyperparameters if you plan to reproduce; read the proofs almost never.
+
+**"Do I need to read the related-work section?"** Skim it for what the paper is positioning itself *against* — that tells you what baseline it considers fair, which is directly useful for judging the results.
 
 ---
 
