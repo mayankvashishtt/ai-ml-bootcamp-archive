@@ -11,6 +11,45 @@
 
 ---
 
+## 0. The idea in plain language
+
+Everything you've learned since Week 2 comes together here into one working language model. Nothing new is introduced conceptually — this week is **assembly**.
+
+**What you're building:** a model that reads Shakespeare and learns to continue it, one character at a time. It has ~4 layers and a few million parameters. GPT-4 has a trillion. The components are the same ones.
+
+**The pieces and where each came from:**
+
+| Piece | Job | Introduced in |
+|---|---|---|
+| **Tokenizer** | Text → numbers | Week 3 |
+| **Embedding** | Numbers → meaning vectors | Week 3 |
+| **RoPE** | Inject position by rotating Q and K | Week 6 |
+| **GQA attention** | Let tokens see each other, cheaply | Weeks 4, 6 |
+| **Causal mask** | Stop tokens seeing the future | Week 4 |
+| **SwiGLU FFN** | Process each token individually | Week 6 |
+| **RMSNorm + residuals** | Keep training stable at depth | Week 6 |
+| **Cross-entropy loss** | Measure wrongness | Week 2 |
+| **AdamW + backprop** | Fix the weights | Weeks 2, 5 |
+
+**The single most important idea in this week** is how the training data works, and it's worth understanding before anything else:
+
+You take a chunk of text, and the "correct answer" is **the same chunk shifted one character right**.
+
+```
+input   x = "To be o"
+target  y = "o be or"
+```
+
+That means position 0 must predict 'o', position 1 must predict ' ', position 2 must predict 'b', and so on — **all at the same time, in one forward pass.** A sequence of 256 characters gives you 256 training examples simultaneously, and **nobody had to label anything.** The text labels itself.
+
+This is called **self-supervision**, and it is the entire economic reason large language models exist. You can't hire humans to label a trillion tokens. You don't have to: the next token *is* the label. Combine that with the causal mask (so the model can't peek at the answer) and you can train on the whole internet.
+
+**Two things to watch for as you read the code:**
+- Every `.view()`, `.transpose()` and `.shape` comment is doing real work — this is the shape-reading skill from Week 5, and this notebook is where it pays off.
+- The `ln(vocab_size)` initial-loss check in §5 is the cheapest debugging trick in deep learning. Learn it.
+
+---
+
 ## Section 0 — Setup & data
 
 ### Character tokenizer
@@ -502,9 +541,33 @@ Dividing logits by T *before* softmax: **low T sharpens** the distribution (more
 
 ---
 
+## Common confusions
+
+**"Why does the model output predictions at every position, but generation only uses the last one?"** During *training* you want all N predictions — that's the efficiency win. During *generation* the earlier positions are predicting characters you already have, so only the final position's prediction is new information. Same forward pass, different use.
+
+**"If x and y overlap almost completely, isn't the model just copying?"** It can't — the causal mask means position *i* only ever sees positions ≤ *i*, and it's asked to produce position *i+1*, which it cannot see. The overlap is what makes the trick efficient, not what makes it easy.
+
+**"Why cross-entropy here instead of MSE from Week 2?"** MSE suits regression (predicting a number, like a house price). This is **classification** — picking one of 65 characters. Cross-entropy measures how much probability mass you put on the correct class, and it produces much better-behaved gradients for this than MSE does.
+
+**"What's AdamW and why not the plain gradient descent from Week 2?"** Plain SGD uses one learning rate for everything. **Adam** keeps a running estimate of each parameter's typical gradient size and scales its step accordingly — parameters with small gradients get bigger steps. **AdamW** adds decoupled weight decay (a gentle pull toward zero that discourages large weights). It converges far faster on transformers and is the default everywhere.
+
+**"Why is there no positional embedding in the model definition?"** Because RoPE handles position *inside* the attention computation by rotating Q and K. There's nothing to add to the embedding. If you're used to seeing a `pos_emb` line, its absence is the sign you're looking at a modern architecture.
+
+**"Why is RoPE applied to Q and K but not V?"** Position should affect *who attends to whom* (matching), not *what information gets passed* (content). Q and K determine matching; V is the payload. Rotating V would corrupt the content with positional noise.
+
+**"Dropout randomly deletes 20% of my activations — doesn't that hurt?"** During training, yes, deliberately. It stops the model relying on any single feature, forcing redundant representations that generalise better. It's switched off at inference (`model.eval()`), so the deployed model uses everything.
+
+**"My validation loss looks weirdly good/bad."** Check you called `model.eval()` before evaluating and `model.train()` after. Leaving dropout active during evaluation is one of the most common PyTorch bugs, and it fails silently.
+
+**"Why sample with `multinomial` instead of just taking the most likely character?"** Greedy `argmax` produces repetitive, degenerate text — it gets stuck in loops. Sampling introduces variety. Temperature controls how much. (S7 covers this properly, including why frontier APIs have now removed temperature entirely.)
+
+**"Is this model any good?"** No — it produces Shakespeare-shaped gibberish. That's expected and fine. The point is that the *mechanism* is complete and correct; quality comes from scale, data, and the post-training in Weeks 12–16.
+
+---
+
 ## Key takeaways
 
-1. **Next-token prediction gives N training examples per sequence of length N** — self-supervision is why pretraining scales.
+1. **Next-token prediction gives N training examples per sequence of length N** — self-supervision is why pretraining scales, and why nobody has to label the internet.
 2. **The causal mask is what makes it a language model.** Without it, the model cheats by reading ahead.
 3. **`-inf` before softmax** is how you zero out attention to masked positions.
 4. **RoPE is applied to Q and K only, never V** — position affects matching, not content.
