@@ -10,6 +10,39 @@
 
 ---
 
+## 0. The idea in plain language
+
+Here's the move, and it's a genuinely different kind of idea from Weeks 9–10.
+
+**Every approach so far has treated the context window as something the model *reads*.** RAG's whole job was picking the best 5 chunks to put in front of it. Week 10 showed why that struggles: whatever you paste in competes for a fixed attention budget, and the model is passive — it takes what it's given.
+
+**RLM asks a different question: what if the model never reads the document at all?**
+
+Instead of pasting a 500-page report into the prompt, you **store it in a variable** and hand the model a Python REPL. Now the model can write code against it:
+
+```python
+context[:2000]                          # peek at the table of contents
+re.findall(r'APAC|Asia Pacific', context)   # find where the relevant bit is
+context[45000:52000]                    # slice out just that section
+rlm_agent("what's the Q3 figure?", chunk)   # spawn a sub-model on just that slice
+```
+
+**The root model never sees the 500 pages.** It sees a table of contents, then a search result, then one 7,000-character slice. Context rot doesn't get mitigated — it **never happens**, because no single model call ever holds a large context.
+
+**The analogy is how you'd actually use a book you've never read.** You don't read it cover to cover to answer one question. You check the index, flip to the right chapter, skim, and read one section carefully. RLM gives the model that ability — scan, narrow, deep-dive, synthesise.
+
+**Two things make this powerful:**
+
+**Recursion.** `rlm_agent(query, chunk)` spawns a *fresh* model call on a subset, and that call can do the same thing again. Divide and conquer, so a 10M-token document becomes many small, reliable calls instead of one large unreliable one.
+
+**Filtering moves off the GPU.** This is the economically important part and it's easy to skim past. A regex over 10 million characters costs essentially nothing — it's CPU string matching. Pushing those same 10 million characters through attention costs a fortune. **Only the "gold" tokens ever reach the transformer.** That's where the cost savings come from, not from a cleverer model.
+
+**And the punchline:** the reported result is that **RLM with a *small* model beat a *large* model given raw context.** Architecture beat scale. A weaker model with a better relationship to its context outperformed a stronger one drowning in tokens.
+
+**Why the second half of the lecture matters.** The Claude Code vs Cursor comparison isn't a product review — it's the same argument playing out commercially. Claude Code *is* RLM applied to a filesystem: no index, no embeddings, just `ls`/`grep`/`cat` and a model deciding where to look. Cursor is Week 9's RAG done properly: AST-aware chunking, incremental re-indexing, semantic search. Both are billion-dollar products, both work, and the trade-offs are real in both directions. That's the useful part.
+
+---
+
 ## 1. The RLM paradigm
 
 **Recursive Language Models** — Alex Zhang, Tim Kraska & Omar Khattab (MIT CSAIL). Paper: `arxiv.org/abs/2512.24601`
@@ -190,6 +223,28 @@ Note the symmetry: agentic search trades **latency and token burn** for **precis
 > *"Understanding why each approach fits its domain is what separates someone who uses AI tools from someone who builds them."*
 >
 > **Don't blindly stuff the context window.**
+
+---
+
+## Common confusions
+
+**"Is RLM just RAG with extra steps?"** No, and the distinction matters. **RAG decides what the model sees *before* it sees anything** — an ingestion pipeline chunks and embeds, and a retriever picks. **RLM lets the model decide at inference time**, iteratively, using a general-purpose programming language. RAG improves the *selection*; RLM changes *who selects*.
+
+**"Doesn't this just move the cost around?"** Partly, but in a favourable direction. Total work still scales with document size — you can't read 10M tokens for free. The win is that **filtering happens in CPU string operations rather than GPU attention**, and that the work is split across many small reliable calls instead of one large unreliable one. Cheaper *and* more accurate, which is why it's interesting.
+
+**"Is this the same as function calling from Week 8?"** Mechanically yes — it's the agent loop, with tools. The novelty is *where the tools point*. Week 8's tools pointed outward (Wikipedia, files, shell). RLM points a tool **inward at the prompt itself**, turning context from a wall of text into a queryable data structure.
+
+**"How is this different from PageIndex (Week 10)?"** PageIndex builds a document tree during **ingestion**, then the model navigates that prebuilt map. RLM discovers structure **at runtime** with arbitrary code — note that step 1 of the example is the model reading the table of contents itself. PageIndex is more efficient when you can pre-index; RLM is more general because it needs no pipeline and works on anything.
+
+**"Should I trust the +34.2 point result?"** Treat the *direction* as well-supported — Week 10's context-rot evidence independently predicts that avoiding large contexts helps. Treat the *magnitudes* as needing a primary source, because the paper reference in the deck doesn't check out (see the sanity-check callout in §1). This is exactly the Week 20 habit: separate the mechanism, which is sound, from the reported numbers, which are unverified.
+
+**"Why is code the worst case for embeddings?"** Because code is almost entirely **exact identifiers**. A function name isn't a concept to approximate — `getUserById` either matches or it doesn't. Week 9 established that embeddings fail on exact strings; a codebase is that failure mode wall to wall. Conversely it's the *best* case for grep, which is why Claude Code needs no index.
+
+**"Then why does Cursor's semantic search work at all?"** Because grep can't find what you can't name. `grep "rate limit"` misses a function called `throttleRequests`. Semantic search solves the genuine gap of **conceptual discovery** — and Cursor's reported 12.5% accuracy gain is real. The two approaches fail in complementary ways, which is why the 2026 consensus is "use both."
+
+**"Is 'no index' strictly better?"** No — it's a trade. Agentic search buys **precision and freshness** (it reads the actual current file, no staleness) and pays in **latency and token burn** (grep output lands in context, and sequential exploration is slow). Indexed RAG buys **speed and conceptual reach** and pays in **staleness and semantic noise**. Neither dominates.
+
+**"Does this make RAG obsolete?"** No. Week 10's own framing is a spectrum, not a replacement sequence. RAG remains right when you have a large static corpus, need low latency, and can afford ingestion. RLM-style exploration wins when the corpus changes constantly, exact matching matters, or you can't ship the data to a third party.
 
 ---
 
