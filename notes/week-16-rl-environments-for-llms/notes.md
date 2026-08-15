@@ -12,6 +12,40 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 15 said: *reward the model when its answer verifiably checks out.* Fine — but **something has to actually do the checking**, hand the model the problem, catch its answer, run the verifier, and hand back a score.
+
+**That something is an environment**, and this week is about building one.
+
+**Concretely, an environment is three functions:**
+
+```
+1. give me a task        →  "What is 17 × 23?"
+2. take the model's reply →  "...so the answer is 391."
+3. score it              →  parse out 391, compare to 391, reward = 1.0
+```
+
+That's genuinely all it is. It's the "gym" the model trains in — the thing that poses problems, watches what happens, and keeps score.
+
+**The insight that makes the week worth its time** is on slide 1, and it's a good one:
+
+> **Environments are synthetic data engines, RL trainers, and eval harnesses — the same artifact, three jobs.**
+
+Think about what those three things need. An **eval harness** needs tasks, a way to run the model, and a scorer. An **RL trainer** needs tasks, a way to run the model, and a scorer. A **synthetic data generator** needs tasks, a way to run the model, and a scorer — keeping the high-scoring outputs as training data.
+
+**They're the same object.** Most teams build all three separately, in three codebases, encoding the same task definition three times — and then they drift apart, so your eval no longer measures what your training optimises. Build it once, use it four ways (add agent-harness experimentation as the fourth).
+
+**Two things to watch for, because they're where people actually get hurt:**
+
+**"Verifiability = unhackability" is the design principle.** The more your scorer *computes* rather than *judges*, the less room the model has to game it. Executing tests is unhackable in a way an LLM judge is not. Every step you take away from computation and toward judgement reopens Goodhart's Law (Week 14).
+
+**The #1 footgun is parsing, not scoring.** §7 covers this and it's the most practically useful thing in the lecture. If your model answers correctly but your regex fails to extract the answer, you score it zero — and you've just taught it that correct answers are bad. **Parse first, score second**, and verify your parser separately, because a broken parser doesn't fail loudly. It silently trains the wrong behaviour.
+
+**And a connection worth holding:** an environment is a **hand-built world model** — you're supplying the rules of a world the model can act in and learn from. S13 explores what happens when models try to *learn* that world model instead, and why building one is hard for exactly the same reasons.
+
+---
+
 ## 1. The thesis
 
 Weeks 12–15 covered CPT, SFT, RLHF/DPO, and RLVR. **This week is the thing all of those had in common.**
@@ -275,6 +309,28 @@ Single-turn RL optimizes one response. Multi-turn optimizes a **strategy**: when
 4. When do you reach for **LLM-as-judge vs rule-based scoring**?
 
 *Question 3 is the sharpest: rubric latency directly bounds group size. GRPO scores G=8 rollouts per prompt per step, so a 10-second rubric makes G=8 cost 80 seconds of pure scoring — which is exactly why Week 15 said cheap verifiers and GRPO were "designed for each other."*
+
+---
+
+## Common confusions
+
+**"What *is* an environment, minimally?"** Three functions: produce a task, accept the model's response, return a score. Everything else — datasets, harnesses, multi-turn state — is elaboration on those three.
+
+**"Why is it the same thing as an eval harness?"** Because both need tasks, a way to run the model, and a scorer. The only difference is what you do with the score: an eval **reports** it, RL **trains on** it, and a data generator **filters by** it. Building them separately guarantees they drift, and then your eval stops measuring what your training optimises.
+
+**"What does 'verifiability = unhackability' actually mean?"** The more your scorer **computes** and the less it **judges**, the less room the model has to game it. Executing a test suite is deterministic and hard to fool. An LLM judge has preferences and blind spots, so optimising against it reopens Goodhart's Law (Week 14). Every step from computation toward judgement widens the attack surface.
+
+**"Why is parsing the #1 footgun?"** Because a parsing failure is **indistinguishable from a wrong answer** at the reward level. Model answers correctly, regex misses it, reward = 0 — and you've just taught the model that correct answers are bad. It doesn't crash and it doesn't warn you. **Parse first, score second**, and test your parser against real outputs independently of the scorer.
+
+**"How is this different from just writing an eval?"** Mostly it isn't — that's the point. The difference is design intent: an environment is built to be *run repeatedly at volume* by a training loop, so it must be fast, deterministic, and safe to execute untrusted model output against.
+
+**"Why is multi-turn where 'real RL lives'?"** Single-turn is close to supervised learning with a computed label — one action, one reward. Multi-turn introduces genuine **credit assignment**: the model took eight actions and got a reward at the end, and it must work out which actions mattered. That's the actual RL problem, and it's much harder.
+
+**"Can the model game a deterministic environment?"** Yes. Known patterns: writing code that special-cases the test inputs, exploiting a lenient parser, or finding a degenerate output that scores well. Verifiable rewards **shrink** the attack surface; they don't close it. Read actual high-scoring rollouts periodically — exploits are usually obvious to a human in ten examples and invisible in aggregate metrics.
+
+**"Do I need an RL library for this?"** Not to understand it. GRPO fits in three lines (§6) and the environment interface is three functions. Libraries buy you batching, distributed rollout collection, checkpointing, and logging — real engineering value, but not conceptual machinery you're missing.
+
+**"Is an environment just a simulator?"** Effectively yes — it's a **hand-built world model** supplying the rules of a world the model acts in. Environment design is hard for exactly the reasons learned world models are hard (S13): capturing what matters, in a form that supports learning, without exploitable flaws.
 
 ---
 
