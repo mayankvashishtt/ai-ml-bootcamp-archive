@@ -10,6 +10,47 @@
 
 ---
 
+## 0. The idea in plain language
+
+A model's knowledge is **frozen at training time**. It has never seen your company handbook, your codebase, or yesterday's news. Ask it about any of those and it will either say it doesn't know — or, more often and much worse, **confidently invent an answer.**
+
+**RAG's fix is almost embarrassingly simple:** before asking the model your question, go and find the relevant documents, paste them into the prompt, and say *"answer using this."*
+
+```
+Question: "What's our parental leave policy?"
+
+     ↓  RETRIEVE — search your documents, find the 3 most relevant pieces
+     ↓  AUGMENT  — paste them into the prompt
+     ↓  GENERATE — "Using the text below, answer the question..."
+
+Answer: "16 weeks fully paid, per the 2024 Employee Handbook, section 4.2."
+```
+
+That's it. RAG is *"look it up first, then answer."* No training, no fine-tuning, no model changes. If the handbook is updated tomorrow, the system is up to date immediately.
+
+**So why is this a whole lecture — two, in fact?** Because step 1, "find the relevant documents," is genuinely hard, and it fails in ways that are invisible unless you look for them.
+
+**How the searching works.** You can't grep, because the user says "parental leave" and the document says "time off for new parents." So instead you use **embeddings** (Week 3): convert every document chunk into a vector, convert the question into a vector, and return the chunks whose vectors sit closest. Similar meaning → nearby vectors.
+
+**And here's where it breaks, which is the real content of this week.** Embeddings encode **what a text is *about***, not what it literally *says*. So:
+
+- ✅ "parental leave" finds "time off for new parents" — different words, same topic. Excellent.
+- ❌ "What changed on **2024-09-15**?" — every date is semantically "a date." The model cannot tell 2024-09-15 from 2024-03-22, because they *mean* nearly the same thing.
+- ❌ "the **RS256** migration" — a rare token that carries almost no semantic weight.
+- ❌ "the Slack command for rollback" — matches the *concept* of rollback, misses the literal command string.
+
+**The pattern: semantic search fails on exact identifiers** — dates, IDs, error codes, commands, ticket numbers, version numbers. Which is precisely what people search for at work.
+
+**The most important habit this week teaches**, and the one that separates people who can debug RAG from people who can't:
+
+> **Look at the retrieved chunks, not the final answer.**
+
+A fluent LLM will paper over bad retrieval — it writes a confident, well-structured answer from the wrong documents, and you cannot tell from the output that anything went wrong. The retrieval step is where the bug lives, and it's only visible if you inspect it directly.
+
+Everything else in this lecture — hybrid search, contextual retrieval, reranking, HyDE — is a specific fix for a specific failure you'll watch happen first.
+
+---
+
 ## 1. Why LLMs need RAG
 
 1. **Frozen in time** — LLMs only know their training data. No current events, no recent updates.
@@ -371,6 +412,30 @@ Level 7: Agentic RAG                 (next class)
 4. **Read:** [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 
 **Next class:** Self-RAG, GraphRAG, RAPTOR, Agentic RAG — and *why Claude Code abandoned RAG entirely.*
+
+---
+
+## Common confusions
+
+**"Should I use RAG or fine-tuning?"** The most-confused decision in applied AI. **RAG changes what the model *knows*; fine-tuning changes how it *behaves*.** Facts, documents, and anything that updates → RAG. Format, tone, refusal style, house conventions → fine-tuning. Fine-tuning to inject facts is the classic expensive mistake: the moment your docs change, the model is confidently stale with no way to tell.
+
+**"Why not just paste all my documents into the context window?"** If they fit, **do that** — it's Level 0 and it's genuinely the right answer for small corpora. RAG exists because most corpora don't fit, and because paying for 500 pages of input on every question is wasteful. Note also Week 10's finding: a big context window isn't the same as *usable* context.
+
+**"Why did retrieval fail when the answer is obviously in my documents?"** Check in this order: (1) is the chunk longer than the embedding model's input limit, so it was silently truncated? (2) is it an exact-identifier query — a date, ID, or code — which dense search structurally cannot handle? (3) did chunking split the answer across two chunks so neither contains it whole? All three are common and none is visible in the final answer.
+
+**"The answer was right, so retrieval worked, yes?"** Not necessarily. Look at §4's "working" example: the **Q2** chunk outranked the Q3 chunk for a Q3 question. The answer came out right because the correct chunk was *also* in the top 5 and the LLM picked sensibly. That's luck with a thin margin, and it will fail on a harder query. This is exactly why you inspect chunks rather than answers.
+
+**"Will a better embedding model fix the date/ID failures?"** No. The failure follows from the *objective* — embeddings are trained on semantic similarity, and every date genuinely is semantically "a date." A bigger model has the same blind spot. The fix is **architectural**: add BM25 keyword search, which matches literal strings and has no concept of meaning at all, making it the exact complement. (S6 covers why in depth.)
+
+**"Does hybrid search always beat semantic search?"** No — and the notebook accidentally demonstrates this. On the RS256 query, hybrid ranked the correct chunk **#2** where naive semantic had it at **#1**. Hybrid wins across a *distribution* of queries, not on every individual one. Evaluate on a query set; a single example proves nothing in either direction.
+
+**"Isn't contextual retrieval expensive — an LLM call per chunk?"** Yes, but it's a **one-time ingestion cost**, not a per-query cost, and prompt caching makes it much cheaper since the full document prefix repeats across every chunk of that document. Anthropic reported 67% fewer retrieval failures combined with BM25 and reranking. That's a very good trade.
+
+**"Why do I need both a bi-encoder and a cross-encoder?"** Because the split is *forced*, not chosen. A bi-encoder can pre-compute every document's vector at ingestion, so a query costs one embedding plus a vector search — that scales to millions. A cross-encoder reads query and document *together*, which is far more accurate but means nothing can be precomputed: scoring a million-document corpus would need a million forward passes per query. So: cheap recall over everything, expensive precision over the top 20.
+
+**"How does HyDE work if the generated answer is factually wrong?"** Because correctness is irrelevant — the hypothetical is a **retrieval probe**, and its job is to be *stylistically* document-like. Questions and answers are written in different registers ("What's the stipend?" vs "The company provides a one-time home office stipend of $1,000"). Embedding a fake answer converts an awkward question→document comparison into an easy document→document one.
+
+**"What if the retrieved context doesn't contain the answer?"** That's exactly what the **escape hatch** is for. Without an explicit "say you don't know" instruction, the model fills the gap from its weights and produces something that *looks* grounded but isn't — worse than no answer, because it's unfalsifiable to the reader. Combine it with citations so claims can be checked.
 
 ---
 
