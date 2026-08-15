@@ -7,6 +7,44 @@
 
 ---
 
+## 0. The idea in plain language
+
+The final lecture, and it closes the loop on the whole course.
+
+**The setup:** an agent that operates a computer the way you do — by **looking at the screen** and **clicking things.** No API, no DOM, no integration. Just pixels in, actions out.
+
+```
+screenshot → model decides → click/type → screenshot → repeat
+```
+
+**Why this matters:** most software has no API. Legacy internal tools, desktop applications, and vendor portals expose nothing programmable. If an agent can use a *screen*, it can use *anything* — which is an enormous unlock, and also why this is the hardest agent problem in the course.
+
+**The task from the deck is a good calibration:** *"File an expense: United Airlines, $450, Travel. Submit."* Trivial for you. **Six separate steps for a model**, each of which can fail.
+
+**The hard part isn't reasoning — it's grounding.** The model can work out perfectly well that it needs to click Submit. Turning "the Submit button" into *"click at pixel (847, 612)"* is where it breaks, and this is the through-line of the lecture.
+
+Why grounding is genuinely hard, drawing on S9: vision models are trained on image captions that describe the *gist* ("a form with several fields"), never precise coordinates. So **spatial precision is one of the weakest things a vision model does** — and here the failure is unforgiving. A click 30 pixels off doesn't degrade gracefully; it hits the wrong element or nothing, and the agent then reasons from a corrupted picture of the world.
+
+**What actually helps is changing the problem rather than the prompt:**
+
+- **Set-of-mark prompting** — overlay numbered boxes on the interactive elements, then ask the model to pick a *number*. This converts hard spatial regression into easy selection, and it's the highest-leverage trick available.
+- **Accessibility trees / DOM** where available — a structured list of elements is far more reliable than pixels. Treat the screenshot as a supplement, not the source of truth.
+- **Coordinate-trained models** — some models are explicitly trained for UI grounding and are genuinely better at raw coordinates. A capability difference, not a prompting one.
+
+**Verify every action.** The model clicks, and the **next screenshot is the only evidence anything happened.** Build the loop to check the result rather than assuming success — Week 17's feedback-quality lesson, expressed in pixels.
+
+**Three things to carry from this lecture:**
+
+**It's the same loop.** Week 8's `LLM + tools + loop` with `screenshot` and `click` as the tools. Nothing new architecturally — which is the point of building it by hand before using the native tool.
+
+**Screenshots are expensive.** Image cost scales with **area** (S9), and an agent capturing a full-resolution screenshot every step accumulates image tokens linearly. Twenty steps is simultaneously a context-limit problem, a cost problem, and a context-rot problem (Week 10). Downscale or drop old screenshots; the agent doesn't need step 3's view at step 19.
+
+**A screenshot is untrusted input.** Text rendered in a webpage or document can carry a prompt injection, and the model reads it as readily as your instructions. A computer-use agent has private access, ingests untrusted content, and can act — **the lethal trifecta assembled by default** (S4). Sandbox it.
+
+**And the closing line of the deck is the best summary of the course's whole method:** *"The API is shaped by the pain of Stage 3."* You build it badly by hand first, feel exactly which parts hurt, and only then does the polished abstraction make sense. That's Week 2's NumPy backprop, Week 8's raw ReAct loop, and Week 9's hand-rolled RAG — the same lesson, one final time.
+
+---
+
 ## The task
 
 > **"File an expense: United Airlines, $450, Travel. Submit."**
@@ -183,6 +221,32 @@ Three of the four are things this course has already argued for: sandboxing (Wee
 > ### **The API is shaped by the pain of Stage 3.**
 
 The best closing line of the course. Every field in `computer_20251124` — the fixed action space, the `zoom` action, the self-verification step — exists because someone hit exactly the failure you hit building it by hand. **Build it badly first, and the API stops looking arbitrary.** That's the pedagogical argument for the whole course: Week 2's NumPy backprop before PyTorch, Week 8's raw ReAct loop before LangGraph, and now a hand-rolled computer-use agent before the native tool.
+
+---
+
+## Common confusions
+
+**"Why use screenshots when APIs exist?"** Because for most software they don't. Legacy internal tools, desktop applications, and vendor portals expose nothing programmable. Screen operation is the universal fallback — it works on anything a human can use, which is exactly why it's worth the difficulty.
+
+**"What is grounding, exactly?"** Mapping a language reference — "the Submit button" — onto a concrete location or element. The *reasoning* about what to click is usually fine; converting it into coordinates is the failure point.
+
+**"Why are vision models bad at coordinates?"** Training data is image–caption pairs describing the gist, never precise pixel offsets (S9). The model was never rewarded for spatial regression, so it's weak at it — and unlike a slightly-wrong sentence, a slightly-wrong click hits the wrong thing entirely.
+
+**"Would a bigger vision model fix it?"** Not much. The limitation follows from the training objective and from patching (sub-patch detail is *absent*, not blurry), so scale doesn't remove it. Architectural fixes — set-of-mark, accessibility trees — help far more than a bigger model.
+
+**"What is set-of-mark prompting?"** Overlay numbered markers on the interactive elements before sending the screenshot, then ask the model to pick a number. It converts a hard spatial-regression problem into an easy multiple-choice one. Highest-leverage single technique here.
+
+**"If the DOM is available, why use screenshots at all?"** You mostly shouldn't — use the accessibility tree or DOM as the source of truth and the screenshot as a supplement for visual state the tree doesn't capture (a modal's appearance, a rendered chart). Screenshots are the fallback for when structure genuinely isn't available.
+
+**"How does the agent know its click worked?"** Only from the next screenshot. There's no return value. This is why verification after every action is mandatory rather than optional, and why a loop that assumes success drifts into a corrupted world model (S13's compounding error, made literal).
+
+**"Why do long computer-use runs degrade?"** Three things compound: image tokens accumulate linearly, context rot sets in (Week 10), and any un-verified action leaves the agent reasoning about a screen state that no longer matches reality. Downscale old screenshots and re-ground frequently.
+
+**"Is it safe to run one of these?"** Not by default. It has access to whatever the machine has, it ingests untrusted rendered content, and it can act — S4's **lethal trifecta**, assembled by construction. Run it in a VM or container, scope its credentials narrowly, and gate consequential actions (payments, deletions, sends) behind human approval.
+
+**"Can a webpage attack my agent?"** Yes. Text rendered on a page — including text deliberately styled to be inconspicuous to humans — enters the model's context looking exactly like legitimate content. This is prompt injection via pixels, and the model has no way to distinguish page text from your instructions.
+
+**"How do I read the benchmark numbers?"** Carefully, and read the footnotes — the deck itself flags this. Computer-use benchmarks vary enormously by task type, allowed retries, and whether accessibility trees were available. A headline number without those details tells you very little (Week 20).
 
 ---
 
