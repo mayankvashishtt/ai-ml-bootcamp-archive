@@ -9,6 +9,18 @@
 
 ---
 
+## 0. The idea in plain language
+
+This is a housekeeping session — six slides about what the course is and what you need installed. But if you're starting from zero, there's context you need before Week 1 opens with "what is intelligence," so §5–8 below add it.
+
+**What you're actually signing up for**, in one paragraph: you'll spend the first seven weeks building a language model from scratch — neurons, then attention, then a working (tiny) LLM you train yourself. Then eighteen weeks *using* models: agents that call tools, retrieval systems that look things up, fine-tuning to change behaviour, and the engineering discipline to know whether any of it works.
+
+**The bet the course is making** is that mechanisms outlast tools. The specific libraries taught here may be superseded within a year — some already have been. Understanding *why* attention exists, *why* context windows degrade, and *why* fine-tuning can't fix a knowledge problem will still be true.
+
+**The one thing to internalise before Week 1:** a model is **a large pile of numbers plus instructions for combining them with your input** (§6). Not a database, not a search engine, not a person. Almost every confusion later — why it hallucinates, why it can't cite sources, why it's confidently wrong — dissolves once that's concrete.
+
+---
+
 ## 1. What the course is trying to do
 
 Four stated goals, and they read as a statement of philosophy rather than a syllabus:
@@ -145,7 +157,7 @@ There are broadly three roles in this space, and the course is training you for 
 
 ---
 
-## 9. Common confusions
+## Common confusions
 
 **"Is AI the same as machine learning?"** No. AI is the goal, ML is one method of reaching it. Rule-based systems are AI without ML. See §5.
 
