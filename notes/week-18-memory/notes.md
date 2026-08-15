@@ -8,6 +8,40 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 8 established the fact that makes this week necessary: **the model has no memory.** It is stateless. Every apparent act of remembering is your application resending text.
+
+So if you want an assistant that knows you across weeks, you have to build that. This week is how — and the honest conclusion is that **nobody has solved it well yet.**
+
+**The example that frames everything:**
+
+```
+MAR   you started using PyTorch
+APR   you switched to JAX
+MAY   you switched back to PyTorch
+
+"What framework should I use?"
+```
+
+What should the assistant say? Not *"you use JAX"* — that's stale. Not *"you've used PyTorch and JAX"* — true, useless, and evasive. The right answer needs **the current state**, and probably the trajectory that produced it.
+
+**And this is exactly what RAG cannot do**, which is the key distinction of the week:
+
+> **RAG retrieves by similarity. Memory tracks state over time.**
+
+Ask RAG about frameworks and it happily returns all three conversations — they're all about frameworks, so they're all similar. It has no notion that April **superseded** March, or that May **superseded** April. Similarity has no arrow of time. **Memory needs one.**
+
+**The practical advice, which is refreshingly unglamorous: start with a markdown file.** Genuinely. Write facts about the user to a text file and paste it into the system prompt. It's deterministic, inspectable, editable, debuggable, and it will carry you further than you expect. Week 10's finding that ChatGPT appears to use deterministically-assembled plain text rather than vector search is the same lesson from production.
+
+**Then it breaks**, and the lecture walks through where — the file grows past what you want to send every turn, facts contradict each other, and nothing knows which version is current. Each failure motivates the next architecture: OS-inspired tiering (hot/warm/cold), memory as a separate service layer, **graphs** (entities and relationships, so "Alice manages Bob" is queryable), and **temporal** models (facts with valid-from/valid-until, so supersession is representable).
+
+**The part most systems skip entirely is forgetting.** A memory that only accumulates becomes a liability — stale facts get retrieved confidently, and the context bloats until Week 10's context rot bites. Deciding what to *discard*, and how to mark facts as superseded rather than merely adding new ones, is as important as deciding what to store, and it is much harder.
+
+**Two threads worth holding as you read.** Memory is the same **finite-context** problem from Weeks 4 and 10, now stretched across *time* rather than within one request. And the closing note is unusually candid for a course lecture: **memory is not solved.** Treat the architectures here as a menu of trade-offs, not a settled answer.
+
+---
+
 ## Part 1 — The problem we can't yet name
 
 **The scenario:**
@@ -325,6 +359,30 @@ Note this mirrors the human pipeline from Part 2, with **memory managers** added
 > - **Speed is set by what you prepared, not what you fetch.**
 
 An unusually honest ending. The storage layer is a solved engineering problem; deciding *what* to remember, *when* it stops being true, and *what it means* remains judgment work with no standard answer.
+
+---
+
+## Common confusions
+
+**"Isn't memory just RAG over past conversations?"** No, and this is the central distinction. **RAG retrieves by similarity; memory tracks state over time.** Similarity has no arrow of time — it returns all three framework conversations equally, with no notion that April superseded March. Memory needs supersession, recency, and a concept of "current."
+
+**"Why start with a markdown file? That seems too simple."** Because it's deterministic, inspectable, editable by hand, and trivially debuggable — you always know exactly what the model sees. Embedding-based memory fails in ways you can't see. Week 10's ChatGPT reverse-engineering found essentially this approach in production. Start here; add machinery only when you hit a specific wall.
+
+**"When does the file actually break?"** Three points: it grows past what you want to resend every turn; facts start contradicting each other with nothing marking which is current; and you need to query relationships ("who does Alice work with?") that flat text can't answer. Each is a different fix.
+
+**"What does 'memory as a graph' buy?"** Entities and relationships become **queryable structure** rather than prose. "Alice manages Bob," "Bob owns the billing service" lets you answer "who should I ask about billing?" by traversal. Flat text requires the model to re-derive that from scratch every time, and it often won't.
+
+**"Why do facts need timestamps?"** Because most real facts have a **validity window**, not a permanent truth value. "Uses JAX" was true in April and false in May. A temporal model stores valid-from/valid-until, so supersession is representable and you can ask "what was true then?" as well as "what's true now."
+
+**"Why is forgetting hard?"** Because deciding what *doesn't* matter requires judgement, and mistakes are asymmetric and invisible. Forget something important and the assistant looks broken; keep everything and you get stale facts retrieved confidently plus context rot (Week 10). Most systems skip forgetting entirely and slowly degrade.
+
+**"Should I store everything just in case?"** No. An append-only memory is a liability that grows. Stale facts don't announce themselves — they get retrieved with the same confidence as current ones, and the model has no way to tell.
+
+**"How do I evaluate a memory system?"** Not by "did it store the fact" but by outcomes: given a real conversation history, does it produce the *right current answer*? Build cases with deliberate supersession (the PyTorch→JAX→PyTorch shape), contradictions, and facts that should have been forgotten. S3's discipline applies — this is exactly the kind of system that looks fine on happy paths.
+
+**"Is memory a solved problem?"** No — the lecture says so explicitly, which is worth respecting. Treat the architectures as a menu of trade-offs rather than a recommended stack, and be suspicious of products claiming otherwise.
+
+**"Why is voice the hardest case?"** No scrollback for the user to check, latency budgets too tight for elaborate retrieval, and transcription errors that get stored as facts. Everything that's merely annoying in text becomes load-bearing.
 
 ---
 
