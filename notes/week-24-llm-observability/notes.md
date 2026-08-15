@@ -7,6 +7,45 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 17 gave you **evals** — a verdict on the output. *Did it get the right answer?* Useful, and not enough.
+
+Because when an agent takes nine seconds, burns 11,000 tokens, and returns nonsense, an eval tells you **that** it failed. It cannot tell you **where** or **why**.
+
+> **Evals score the output. Observability shows you the process.**
+
+**Why LLM systems are unusually hard to debug:**
+
+- They're **non-deterministic** — the same input can produce different behaviour, so "reproduce it locally" often doesn't work
+- They're **multi-step** — an agent run is a dozen model calls, tool calls, and retrievals, and the failure lives in one of them
+- Failures are **silent** — the system returns a fluent, confident, wrong answer rather than throwing an exception
+- Cost and latency are **emergent** — nobody wrote "spend 11k tokens"; it accumulated across steps nobody looked at individually
+
+**The core concept is a trace.** A trace is the complete record of one run, broken into nested **spans** — one per operation:
+
+```
+Trace: "user asked about refund policy"          9.2s   11,431 tokens
+├── span: retrieve                               0.3s
+│   └── query, top-5 chunks returned, scores
+├── span: llm-call-1                             2.1s    3,200 tokens
+│   └── full prompt, full response, model, params
+├── span: tool-call: lookup_order                4.8s   ← the 9 seconds
+│   └── args, result, error
+└── span: llm-call-2                             1.9s    8,100 tokens  ← the cost
+    └── prompt included the entire order history
+```
+
+Now the questions answer themselves. The nine seconds was one slow tool call. The 11k tokens came from stuffing an entire order history into the second prompt. **Neither is visible from the final output** — you had to see inside.
+
+**The standard underneath this is OpenTelemetry (OTel)** — the same tracing standard used across normal software engineering, not something invented for AI. That matters practically: your LLM traces can sit alongside your existing application traces, and you're not locked into an AI-specific vendor.
+
+**But raw OTel isn't enough**, which is why providers like Langfuse exist. Generic tracing has no notion of prompts, token counts, cost per model, or "was this output any good." LLM observability tools add the domain layer: per-call cost, prompt/response capture, prompt versioning, and the ability to attach quality scores to spans.
+
+**And that last capability is the real payoff — closing the loop.** Once traces carry quality scores, production traffic becomes your eval set. Real failures found in production get promoted into test cases; you fix them, and re-run against the trace history to check nothing regressed. **Observability stops being debugging and becomes the input to improvement** — which is why this is the second-to-last lecture rather than a footnote.
+
+---
+
 ## Where we are
 
 > - **You can build the system.**
@@ -200,6 +239,30 @@ This closes Week 17's flywheel: evals → failure clusters → harness changes �
 > - **Trace · span · generation.**
 > - **OTel is the substrate.**
 > - **Observability + evals = a feedback loop.**
+
+---
+
+## Common confusions
+
+**"Isn't this just logging?"** Logging gives you disconnected lines. A **trace** gives you one run as a **tree** — parent/child spans with timing, so you can see that step 4 took 4.8 of the 9.2 seconds and that step 5's prompt was enormous. Structure and causality are the difference.
+
+**"Trace vs span?"** A **trace** is one complete run (one user request). A **span** is one operation inside it (a model call, a retrieval, a tool call). Spans nest, which is what lets you attribute time and cost to specific steps.
+
+**"Evals or observability — which do I need?"** Both, for different questions. Evals answer *"is the system good?"* over a fixed dataset. Observability answers *"what happened in **this** run?"* in production. Evals catch regressions before shipping; observability explains failures after.
+
+**"Why OpenTelemetry rather than an AI-specific format?"** Because it's the existing standard for distributed tracing across all software. Your LLM spans sit alongside your database and HTTP spans in one trace, and you avoid vendor lock-in. Using the general standard was the right call.
+
+**"Then why do LLM observability providers exist?"** Because raw OTel knows nothing about prompts, tokens, model pricing, or output quality. Providers add the domain layer — per-call cost, full prompt/response capture, prompt versioning, and quality scores attached to spans. That's the gap.
+
+**"What should I actually capture?"** The full prompt and response (not a truncated preview — the detail is where the bug is), model and parameters, token counts in and out, latency per span, tool arguments and results, retrieved chunk IDs and scores, and a run/session ID linking everything. Anything you don't capture, you can't debug later.
+
+**"Isn't capturing full prompts a privacy problem?"** Yes, and it needs deciding deliberately rather than by default. Prompts routinely contain user data. Options: redact PII before export, sample rather than capturing everything, shorten retention, or self-host. Treat trace storage as a data store with the same obligations as any other.
+
+**"What does 'closing the loop' mean concretely?"** Attach quality scores to traces (user feedback, an LLM judge, or manual labels), then **promote real production failures into your eval set**. Production traffic becomes test data. Fix the failure, re-run against trace history, confirm nothing regressed. That's the cycle observability enables.
+
+**"When should I add this?"** Before you need it. Instrumenting is cheap early and painful once the system is complex — and the failures that most need explaining are the ones that only appear in production. This becomes non-negotiable with multi-agent systems (S12), where a failure spans several transcripts.
+
+**"Why can't I just reproduce the bug locally?"** Because these systems are non-deterministic (S7), depend on retrieval state, and are affected by the exact context assembled at that moment. The trace *is* the reproduction — often the only one you'll get.
 
 ---
 
