@@ -11,6 +11,40 @@
 
 ---
 
+## 0. The idea in plain language
+
+**The problem with SFT (Week 13) is that it only ever shows the model good examples.** It never says *"this response was bad — don't do that."*
+
+That turns out to matter enormously, because some failures can't be fixed by demonstration:
+
+- **Sycophancy** — the user says *"Revenue was $100B, right?"*, the context clearly says $53B, and the model agrees anyway. You can show it a thousand correct answers; nothing in them teaches "don't cave when the user pushes back."
+- **Hallucination** — asked about employee count when only revenue is available, it invents a number. Good examples don't teach *restraint*.
+- **Format overfitting** — it works with your exact template and breaks without it.
+
+**The insight: sometimes you can't write the perfect answer, but you can easily tell which of two answers is better.**
+
+That's a much easier thing to collect. Ask a human to write an ideal response to a subtle question and they'll struggle. Show them two responses and ask which is better — they'll answer instantly. **Preference tuning is built on that asymmetry.**
+
+**So the data changes shape:**
+
+| | SFT | Preference tuning |
+|---|---|---|
+| One example is | prompt → *the* good answer | prompt → **chosen** answer + **rejected** answer |
+| Signal | "imitate this" | "prefer this over that" |
+| Loss is computed | per token | **per response, contrastively** |
+
+**Two ways to use that data:**
+
+**RLHF** (the original, and what made ChatGPT work) is a two-stage process. First train a separate **reward model** on the preference pairs — a model whose only job is to score responses. Then use reinforcement learning (**PPO**) to push the main model toward responses that score highly. It works, and it's genuinely painful: you're training two models, RL is unstable, and it needs careful tuning.
+
+**DPO** (the simplification) asks: *if the reward model is just a stand-in for the preferences, why not optimise against the preferences directly?* It skips the reward model and the RL entirely, becoming a straightforward classification-style loss you can run like ordinary fine-tuning. Far simpler, far more stable, and usually competitive. This is why almost everyone starts with DPO now.
+
+**The trap you must know about — and it recurs for the rest of the course.** Once you optimise hard against a *learned* reward model, the model starts gaming its flaws rather than genuinely improving. This is **Goodhart's Law**: *when a measure becomes a target, it ceases to be a good measure.* The classic symptom is **length bias** — annotators mildly prefer longer answers, so the reward model learns "longer is better," so the policy learns to pad. You'll see this exact pattern again in Week 15 (verifiable rewards), Week 16 (LLM judges), and S13 (world models).
+
+**Why this lecture opens with the ChatGPT story:** GPT-3 existed for two and a half years and almost nobody cared. Same architecture, same parameters, same capability. What changed in November 2022 was **alignment**. The capability was already there; RLHF is what made it *usable*.
+
+---
+
 ## The ChatGPT origin story
 
 > GPT-3 was released in **June 2020**. For 2.5 years, almost nobody outside AI cared.
@@ -531,6 +565,32 @@ where  Δ̂(y) = log [ π_θ(y|x) / π_ref(y|x) ]
 | **β** — preference strength (0.1) | **Reward hacking** → check length, formatting |
 | **LR** — step size (5e-6) | **Overfitting** → use eval set, early stop |
 | **data** — pair quality (**matters most**) | **Drift** → β too low OR LR too high |
+
+---
+
+## Common confusions
+
+**"Why can't SFT fix sycophancy or hallucination?"** Because SFT only shows *good* examples and says "imitate this." Nothing in a correct answer teaches "don't cave when the user pushes back" or "decline when you don't know." Those are behaviours defined by what *not* to do, and they need a contrastive signal.
+
+**"Why collect preferences instead of just writing better answers?"** Because **judging is far easier than producing.** Ask someone to write the ideal response to a subtle question and they'll labour over it; show them two and ask which is better and they'll answer in seconds. Preference tuning exploits that asymmetry — you get usable signal on questions nobody could write a gold answer for.
+
+**"RLHF vs DPO — which should I use?"** Start with **DPO**. It skips the separate reward model and the RL loop, so it's dramatically simpler, more stable, and trains like ordinary fine-tuning. RLHF/PPO can still edge it out at scale with a well-tuned setup, but the complexity is real: two models, unstable optimisation, and a lot of tuning. For almost everyone, DPO first.
+
+**"What's the reward model actually for?"** In RLHF you can't ask humans to score every generation during training — far too slow. So you train a model to *imitate* human judgement, then let it score millions of generations cheaply. It's a scalability trick, and its flaws are exactly what the policy learns to exploit.
+
+**"What is Goodhart's Law here, concretely?"** You optimise against the reward model, not against actual quality. Push hard enough and the policy finds the reward model's blind spots — producing responses that score highly and are worse. **Rising reward is what both success and reward hacking look like from the inside**, which is why you need evaluation *outside* the optimisation loop: held-out human eval, KL divergence from the reference policy, and reading actual generations.
+
+**"What's length bias?"** Annotators mildly prefer longer responses largely independent of content. The reward model learns "longer = better," and the policy learns to pad. It's the most reliably observed pathology in preference tuning, and it needs explicit control (length-normalised comparisons, length-matched pairs) rather than hoping it averages out.
+
+**"What makes a good preference pair?"** **Hard ones.** If the rejected response is obviously terrible, the model learns nothing it didn't already know. If the rejected response is genuinely good and loses on something subtle, the model learns a real boundary. **Preferences are about boundaries, not centres** — the same principle as hard negatives in S6.
+
+**"How much does annotator disagreement matter?"** It's a hard ceiling. If humans agree only 65% of the time on which response is better, that disagreement is irreducible noise and no amount of extra data pushes past it. **Measure inter-annotator agreement before scaling annotation** — low agreement means your rubric is ambiguous, and the fix is a better rubric, not more labellers.
+
+**"Can I use an LLM instead of humans to label preferences?"** Yes — that's **RLAIF**, and it scales far better. The caveat is that you inherit the judge model's biases, including its own length and style preferences. Calibrate the judge against human labels on a sample; don't assume it agrees with you.
+
+**"What's rejection sampling and why is it 'underrated'?"** Generate N responses, keep the best-scoring one, and fine-tune on it with plain SFT. No RL, no DPO, no reward-model optimisation loop — so no reward hacking. It captures a good share of the benefit for a fraction of the complexity, and it's a genuinely sensible first thing to try.
+
+**"Does alignment make the model worse?"** Slightly, on raw capability benchmarks — the alignment tax from Week 13. You're constraining behaviour and constraint costs something. The trade is usually strongly worth it: GPT-3 sat unused for 2.5 years, and alignment is what made it a product.
 
 ---
 
