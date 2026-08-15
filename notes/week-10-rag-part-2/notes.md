@@ -10,6 +10,46 @@
 
 ---
 
+## 0. The idea in plain language
+
+Week 9 left you with an obvious-sounding question: **if context windows are now a million tokens, why bother with retrieval at all?** Just paste everything in and let the model find what it needs.
+
+**This week's answer is: because the model doesn't actually read it all equally well.**
+
+The finding, tested across 18 frontier models, is called **context rot**:
+
+> **The 10,000th token is not treated as reliably as the 100th.**
+
+More context does not mean more knowledge — past a point it means *worse answers*, even on simple tasks. A model given a million tokens is not a model that has read a million tokens carefully.
+
+**Why this happens is something you already know from Week 4.** Attention weights are produced by a softmax, and **softmax outputs always sum to 1.** So attention is a **fixed budget being divided among competitors**. If the sentence you need held 40% of the model's attention when there were 1,000 tokens, it simply cannot still hold 40% when it's competing against 100,000. The budget didn't grow; the number of claimants did.
+
+> *"It's like asking someone to read War and Peace in one sitting, then answer a specific question."*
+
+**And here's the genuinely counter-intuitive part.** You'd assume irrelevant filler is harmless — the model just ignores it. Wrong, in two ways:
+
+- **Distractors hurt far more than noise.** Random text is easy to ignore, because nothing in it competes for relevance. But *plausible-but-wrong* passages actively compete with the right answer. Four similar-looking distractors tank performance in a way that four pages of gibberish don't.
+- **Well-written documents are harder than random text.** A coherent document pulls the model along its narrative arc, and it follows the story instead of hunting for your specific fact. **Your nicely formatted documents may be hurting retrieval.**
+
+**Multi-hop questions collapse fastest.** If answering requires finding *two* separate facts and connecting them ("who leads project X?" + "what date did that person confirm?"), both facts must survive the attention competition *and* be linked. The failure probabilities compound, which is why "find X" tolerates long context far better than "connect X and Y."
+
+**So what's the fix?** The lecture's thesis is one line:
+
+> **Be surgical. Every token you add is a bet against accuracy.**
+
+Which inverts the naive instinct to retrieve more chunks "just in case." More chunks improves recall *and* worsens rot *and* adds distractors. There is an optimum, and it's well below "as much as fits."
+
+**The deeper diagnosis — and the through-line for Weeks 10, 11, and beyond — is that in naive RAG the model is *passive*.** It receives whatever the retriever hands it. It cannot say "this chunk is irrelevant," cannot ask for more, cannot go and look somewhere else. Everything in the rest of this lecture, and all of Week 11, is about **giving the model control over its own context**:
+
+```
+Phase 1  Naive RAG    passive — embed, search, stuff
+Phase 2  Advanced RAG smarter retrieval — hybrid, rerank, HyDE
+Phase 3  PageIndex    reasoning — the model reads a table of contents and picks
+Phase 4  RLM          active — the model writes code to explore (Week 11)
+```
+
+---
+
 ## 1. Context rot — the hidden killer
 
 > **The 10,000th token is NOT treated as reliably as the 100th.**
@@ -227,6 +267,30 @@ Which sections (node IDs) would you look at? Explain your reasoning step by step
 > ### **TREND: GIVING THE MODEL MORE CONTROL OVER ITS OWN CONTEXT.**
 
 That single sentence is the through-line. Phases 1→4 progressively move the decision of *what the model sees* from the pipeline to the model. Phase 4 is Week 11.
+
+---
+
+## Common confusions
+
+**"Does context rot mean long context windows are useless?"** No. It means the advertised window is an *architectural capacity*, not a promise of uniform quality across it. A 1M-token model genuinely can accept 1M tokens; it just won't attend to all of them equally well. Treat the number as a ceiling, not a target.
+
+**"Is this the same as the model 'running out of memory'?"** No. Nothing is dropped or truncated — every token is present and attended to. The problem is that attention is *diluted* across them, so the important token gets a smaller share. It's a competition problem, not a capacity problem.
+
+**"So should I retrieve fewer chunks?"** Usually yes — and this genuinely conflicts with the Week 9 instinct to raise top-K for better recall. The two effects pull in opposite directions: more chunks means higher recall *and* more distractors *and* more rot. The optimum is a real tuning decision you should measure (S3), not guess.
+
+**"Why are distractors worse than random filler?"** Random text doesn't compete — nothing in it looks like an answer, so attention doesn't linger. A plausible-but-wrong passage looks *exactly* like what the model is hunting for, so it actively wins attention away from the correct chunk. This is why retrieving 20 "pretty relevant" chunks can be worse than retrieving 3 right ones.
+
+**"Is 'coherent documents are harder' really true?"** It's the reported finding and it's counter-intuitive enough to be worth stating carefully: the effect is that a model reading a well-structured document follows its argumentative flow, which competes with needle-hunting. It doesn't mean you should deliberately degrade your documents — it means clean formatting isn't the retrieval win people assume it is.
+
+**"Does ChatGPT really not use vector search for memory?"** The §4 description is explicitly **reverse-engineered, not documented**. Treat it as a credible account of the *approach* — deterministic assembly of plain-text layers rather than similarity search — rather than a verified spec, and assume it has changed since. The transferable lesson stands regardless: deterministic context assembly has no retrieval failures and is fully predictable, which is a real advantage over embedding search.
+
+**"Is PageIndex's 54% → 98.7% result too good to be true?"** Read what's being compared. It's **naive** RAG versus PageIndex — not *advanced* RAG with hybrid search, contextual retrieval, and reranking. And FinanceBench is built on long, heavily structured financial filings, which is precisely the document type where preserving structure helps most. The result is real and striking; it is not evidence that embeddings are obsolete. (Week 20's missing-baseline lesson applies directly.)
+
+**"Is PageIndex a special model?"** No, and the notebook's best cell proves it. It's **a table of contents plus an LLM that reads it** — serialise the document tree to text, ask the model which sections to open, then send only those pages. You could build a workable version yourself for any structured document. That's the useful takeaway, more than the product.
+
+**"Why does structure beat chunking?"** Because a heading hierarchy encodes the *author's own* semantic organisation. Chunking destroys that, and embeddings then try to reconstruct it statistically. Navigating a tree is also **iterative** — look at the map, open a section, decide where next — whereas similarity search gets one shot.
+
+**"Similarity ≠ relevance — what does that actually mean?"** Embedding distance is a **proxy** for usefulness, and proxies have ceilings. A chunk can be highly similar to your query while being useless for answering it (it discusses the same topic without containing the fact), and a chunk can be genuinely relevant while sitting far away in embedding space. Optimising the proxy harder eventually stops helping — which is why the field moved toward reasoning-based retrieval.
 
 ---
 
